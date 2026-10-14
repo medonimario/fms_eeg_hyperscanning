@@ -1,0 +1,9 @@
+# Install the CUDA-compatible PyTorch build separately (see README).
+braindecode==1.8.1
+mne==1.13.2
+skorch==1.4.0
+numpy>=2.0,<3
+pandas>=2.2,<4
+scikit-learn>=1.6,<2
+python-dotenv>=1.0,<2
+wandb>=0.19,<1

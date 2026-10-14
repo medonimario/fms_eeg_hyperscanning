@@ -32,3 +32,11 @@
 * Ensure all functions and classes have docstrings.
 * Use Google style for docstrings.
 * Update this `AGENTS.md` file if any new tools or commands are added to the project.
+
+# Braindecode classification commands
+
+* Set `PYTHONPATH=src` and use `python -m labram_classification --help` for production preprocessing and training.
+* See `src/labram_classification/README.md` for the dataset contracts and HPC workflow.
+* Run targeted regression tests with `python -m pytest tests/labram_classification tests/labram_classification_lessons`.
+* The former tutorial package is now `src/labram_classification_lessons`; production must not import it.
+* Optional W&B: `wandb login` authenticates online logging; `wandb sync <offline-run-directory>` uploads an offline run. Set `WANDB_MODE` to online, offline, or disabled.
