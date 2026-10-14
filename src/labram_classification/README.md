@@ -9,23 +9,45 @@ The introductory scripts are now in `src/labram_classification_lessons/`; produc
 3. Fine-tune Braindecode's native `Labram` through `EEGClassifier`, using one explicit validation fold.
 4. Restore the epoch with the best validation balanced accuracy, evaluate the held-out test fold once, and summarize all ten runs.
 
-## Setup
+## Install on the HPC
 
-Use Python 3.11. Install a PyTorch build compatible with your GPU and cluster driver **before** installing these requirements:
+Use `src/labram_classification/requirements.txt` for a **new Linux x86_64, Python 3.11 environment with glibc 2.28 or newer**.
+You create and install this environment on the cluster; no remote access by the coding agent is needed.
 
 ```bash
+python3.11 -m venv /your/path/braindecode-env
+source /your/path/braindecode-env/bin/activate
 pip install -r src/labram_classification/requirements.txt
+python -m pip check
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 python -m labram_classification --help
 ```
 
-The project root requirements pin torch 2.6.0. A CUDA 11.8 build of that version is available through the official PyTorch installation instructions:
+The application pins are copied from the installed local environment, including **Braindecode 1.8.1**.
+The GPU-specific exception is the matched `torch==2.6.0+cu118` / `torchaudio==2.6.0+cu118` pair from the
+[official PyTorch CUDA 11.8 distribution](https://docs.pytorch.org/get-started/previous-versions/), selected
+for the supplied V100/CUDA 11.8 job. Both packages are pinned together; the requirements file includes
+their package index. This is an explicit platform adaptation, not a claimed freeze of an existing HPC
+environment. The user's initial Braindecode 1.5 report differs from the local installed version; this
+implementation has not been verified against 1.5.
+
+The complete local `pip freeze` is preserved separately as `requirements-local-freeze.txt`.
+`requirements-environment.json` records its interpreter/platform and successful local `pip check`.
+That macOS snapshot is provenance, not the file to install on the cluster. It includes development
+and unrelated installed packages; the HPC installation file lists the application's direct dependencies
+and lets pip resolve their dependencies for Linux. Neither file replaces the root project's requirements.
+
+Install where internet access is available. On an allocated GPU node, run the smoke command below
+before full cross-validation. Package resolution cannot verify your cluster driver or GPU execution;
+the CUDA environment has not been runtime-tested here. Loading `cuda/11.8` alone does not install PyTorch.
+Once the installed HPC environment passes its checks, save its complete resolved snapshot:
 
 ```bash
-pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu118
+python -m pip freeze > requirements-hpc-resolved.txt
 ```
 
-Install dependencies on a machine/node with internet access, then use that environment on the compute node. Loading `cuda/11.8` alone does not install PyTorch. The development environment used for verification has a newer CPU PyTorch build; the actual V100/CUDA environment still needs a smoke test. Each run records actual library versions.
+Each training run also records the actual key library versions. Keep that resolved snapshot with your
+experiment outputs to reproduce the transitive dependencies selected during installation.
 
 ## Prepare data once
 
@@ -162,7 +184,7 @@ Smoke subsets retain the existing group partitions but are not performance estim
 
 ## W&B progress tracking
 
-Install the updated requirements (or `pip install wandb` in your existing environment). For live progress, authenticate once using `wandb login` on the cluster login node, or supply `WANDB_API_KEY` through the job environment. Do not put the key in code or the submission script.
+The captured local environment already includes W&B. In a separate environment, install it with `pip install wandb`, validate the environment, and capture its own freeze. For live progress, authenticate once using `wandb login` on the cluster login node, or supply `WANDB_API_KEY` through the job environment. Do not put the key in code or the submission script.
 
 ```bash
 export WANDB_MODE=online
@@ -205,7 +227,9 @@ Offline mode has no live remote dashboard until synchronization. See the [W&B ne
 | `tracking.py` | Optional W&B lifecycle, progress callbacks and final metric logging |
 | `runner.py` | Fold orchestration, manifests, selection, predictions, metrics and summary |
 | `hpc/train_cv.lsf` | Offline sequential CV job template |
-| `requirements.txt` | Braindecode environment dependencies; select PyTorch separately |
+| `requirements.txt` | Linux/Python 3.11 installation requirements with matched CUDA 11.8 Torch/TorchAudio |
+| `requirements-local-freeze.txt` | Unmodified full local pip freeze, retained as provenance |
+| `requirements-environment.json` | Snapshot interpreter/platform provenance and dependency-check result |
 
 ```bash
 python -m pytest tests/labram_classification tests/labram_classification_lessons
@@ -221,3 +245,5 @@ API references: [Braindecode Labram](https://braindecode.org/stable/generated/br
 The 12 production and lesson tests passed locally, including an end-to-end CPU fit using the downloaded checkpoint on synthetic windows. Ruff and the LSF script's Bash syntax check passed. The full repository test collection is currently blocked by the unrelated template module's missing `typer` dependency in the Braindecode environment. A direct numerical comparison with the old model could not run because its `timm` dependency is absent; bitwise parity is not claimed. The real dataset drive was unavailable, so full-file preparation, real event/filename coverage, V100 AMP, and complete ten-fold training remain to be verified on the user's data and cluster.
 
 W&B addition: all five tracking tests passed, including a real offline SDK run with W&B 0.30.0, alongside the 12 existing targeted tests. The real SDK test needs permission to start its local background service/socket. Online authentication and upload were not exercised during implementation.
+
+HPC requirements validation: pip successfully resolved the Linux target wheels, including the Linux-only NVIDIA CUDA and Triton dependencies. All active Linux dependency specifiers were checked against the resolved versions; see `requirements-linux-check.json`. This is a dependency-metadata check, not a GPU runtime test.

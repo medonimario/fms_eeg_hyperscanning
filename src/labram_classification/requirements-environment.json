@@ -1,0 +1,11 @@
+{
+  "python_executable": "/Users/mamed/miniconda3/envs/braindecode-env/bin/python",
+  "python_version": "3.11.17",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "machine": "arm64",
+  "command": "python -m pip freeze",
+  "scope": "Full snapshot of the current local environment; not a verified HPC lockfile.",
+  "pip_check_exit_code": 0,
+  "pip_check_output": "No broken requirements found.",
+  "snapshot_file": "requirements-local-freeze.txt"
+}
