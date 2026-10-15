@@ -62,7 +62,7 @@ def test_progress_with_classifier(tmp_path: Path) -> None:
         min_lr=1e-6,
         amp=False,
     )
-    net = make_classifier(model, data, tmp_path, options)
+    net = make_classifier(model, data, tmp_path, options, test=data)
     net.set_params(verbose=0, callbacks=net.callbacks + [("wandb", WandbProgress(run, log_every=1))])
     net.fit(data, y=None)
     logs = [call.args[0] for call in run.log.call_args_list]
@@ -71,7 +71,8 @@ def test_progress_with_classifier(tmp_path: Path) -> None:
     assert [row["optimizer_step"] for row in updates] == [1, 2, 3, 4]
     assert [row["epoch"] for row in epochs] == [1, 2]
     assert epochs[-1]["epoch/valid_balanced_accuracy"] == net.history[-1]["valid_balanced_accuracy"]
-    assert all("test" not in key for row in logs for key in row)
+    assert all("epoch/train_eval_acc" in row and "epoch/test_balanced_accuracy" in row for row in epochs)
+    assert (tmp_path / "epoch_metrics.csv").exists()
     result = {
         "best_epoch": 1,
         "valid": {"accuracy": 0.5, "confusion_matrix": [[1, 0], [1, 0]]},

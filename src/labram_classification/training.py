@@ -15,6 +15,8 @@ from skorch.helper import predefined_split
 from torch import nn
 from torch.utils.data import Dataset
 
+from .monitoring import EpochDiagnostics
+
 
 class BinaryLoss(nn.BCEWithLogitsLoss):
     """Accept Braindecode's integer targets and compute stable float32 binary loss."""
@@ -136,7 +138,13 @@ class FinetuneClassifier(EEGClassifier):
         return dict(loss=loss.detach(), y_pred=prediction.detach())
 
 
-def make_classifier(model: nn.Module, validation: Dataset, output: Path, options: dict) -> FinetuneClassifier:
+def make_classifier(
+    model: nn.Module,
+    validation: Dataset,
+    output: Path,
+    options: dict,
+    test: Dataset | None = None,
+) -> FinetuneClassifier:
     """Select the best epoch by held-out validation balanced accuracy only."""
     scoring = EpochScoring("balanced_accuracy", name="valid_balanced_accuracy", lower_is_better=False)
     checkpoint = Checkpoint(
@@ -160,7 +168,11 @@ def make_classifier(model: nn.Module, validation: Dataset, output: Path, options
         iterator_valid__num_workers=options["num_workers"],
         iterator_train__pin_memory=options["device"] == "cuda",
         iterator_valid__pin_memory=options["device"] == "cuda",
-        callbacks=[("balanced_accuracy", scoring), ("checkpoint", checkpoint)],
+        callbacks=[
+            ("balanced_accuracy", scoring),
+            ("checkpoint", checkpoint),
+            ("diagnostics", EpochDiagnostics(output, test)),
+        ],
         max_epochs=options["epochs"],
         batch_size=options["batch_size"],
         lr=options["lr"],

@@ -8,6 +8,8 @@ from typing import Any, Iterator
 
 from skorch.callbacks import Callback
 
+from .monitoring import CURVE_KEYS
+
 
 @contextmanager
 def tracked_run(config: dict, output: Path) -> Iterator[Any]:
@@ -84,7 +86,7 @@ class WandbProgress(Callback):
         row = net.history[-1]
         values = {
             f"epoch/{key}": float(row[key])
-            for key in ("train_loss", "valid_loss", "valid_acc", "valid_balanced_accuracy", "dur")
+            for key in ("train_loss", *CURVE_KEYS, "dur", "diagnostic_duration")
             if key in row
         }
         self.run.log({"epoch": row["epoch"], **values})

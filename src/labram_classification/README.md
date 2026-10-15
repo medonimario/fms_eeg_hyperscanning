@@ -7,7 +7,7 @@ The introductory scripts are now in `src/labram_classification_lessons/`; produc
 1. Read preprocessed EEG with MNE, preserve the dataset-specific operations below, and cache 4-second windows.
 2. Assign whole dyads/triads to ten folds, keeping every participant, condition and overlapping window from a group together.
 3. Fine-tune Braindecode's native `Labram` through `EEGClassifier`, using one explicit validation fold.
-4. Restore the epoch with the best validation balanced accuracy, evaluate the held-out test fold once, and summarize all ten runs.
+4. Restore the epoch with the best validation balanced accuracy, report final held-out test performance, and summarize all ten runs. Epoch-level test curves are diagnostic only.
 
 ## Install on the HPC
 
@@ -124,7 +124,7 @@ All encoder weights are fine-tuned. No mixup, augmentation, normalization fitted
 
 The checkpoint adapter renames original student parameters, trims the temporal table for four patches, drops pretraining-only heads, and strictly checks all remaining tensor shapes. The original fine-tuning loader did **not** map the student's `norm` into `fc_norm`; production likewise initializes `fc_norm` to ones/zeros. This differs intentionally from the introductory lesson's conversion. The classification head uses truncated-normal initialization scaled by 0.001. Braindecode stores the full 128-channel positional table, while forward calls select the explicit 64 recorded channel names. Local checkpoint loading does not eliminate the need for parameter-name and temporal-table conversion.
 
-This preserves the intended experimental protocol, not guaranteed bitwise identity across frameworks/devices. Unlike the old engine, test data is evaluated only after validation selection. Outputs are window-level; overlapping windows are correlated and are not independent subjects. Fold mean and sample SD are descriptive, not an independence-based significance test.
+This preserves the intended experimental protocol, not guaranteed bitwise identity across frameworks/devices. Train and test partitions are also evaluated after every epoch for diagnostic curves; only validation balanced accuracy selects checkpoints. Outputs are window-level; overlapping windows are correlated and are not independent subjects. Fold mean and sample SD are descriptive, not an independence-based significance test.
 
 ## Outputs and recovery
 
@@ -133,11 +133,12 @@ Each `fold_k/` contains:
 - `config.json`: options, cache metadata/hash, checkpoint SHA256, library versions and update count.
 - `train_windows.csv`, `valid_windows.csv`, `test_windows.csv`: exact partition provenance.
 - `best_model.pt`: validation-selected model **state dictionary**, including wrapper `backbone.*` names.
-- `history.json`: per-epoch scores/losses and per-batch losses from Braindecode/skorch.
+- `history.json`: per-epoch scores/losses and per-batch losses, saved atomically after every completed epoch.
+- `epoch_metrics.csv`: flat per-epoch optimization, evaluation, and timing measurements, also saved every epoch.
 - `valid_predictions.csv`, `test_predictions.csv`: probabilities, predictions, labels and provenance.
 - `result.json`: completion marker, selected epoch and metrics.
 
-Metrics include accuracy, balanced accuracy, ROC AUC, trapezoidal PR AUC, average precision, F1 and a `[0,1]` confusion matrix. PR AUC and average precision are named separately because they are different summaries. Threshold is strictly greater than 0.5, matching two-column argmax's class-0 tie. No threshold is tuned on test data.
+Final metrics include binary cross-entropy loss, accuracy, balanced accuracy, ROC AUC, trapezoidal PR AUC, average precision, F1 and a `[0,1]` confusion matrix. PR AUC and average precision are named separately because they are different summaries. Threshold is strictly greater than 0.5, matching two-column argmax's class-0 tie. No threshold is tuned on test data.
 
 Summarization requires all ten completed, non-smoke folds with matching configurations; it writes `fold_metrics.csv` and `summary.json`. Caches are portable because array paths are relative; source paths remain provenance and are not opened during training. Metadata has a SHA256 integrity check; signal arrays are not individually hashed. Preserve the cache immutably throughout an experiment.
 
@@ -202,11 +203,11 @@ The same exports work before `bsub < src/labram_classification/hpc/train_cv.lsf`
 Logged data:
 
 - Every 20 optimizer updates (configurable with `--wandb-log-every`) and the final update of each epoch: accumulated-batch training loss and minimum/maximum layer learning rate.
-- Each epoch: training/validation loss, validation accuracy and balanced accuracy, and epoch duration.
+- Each epoch: optimization training loss; evaluation-mode train/validation/test loss, accuracy and balanced accuracy; training/validation duration and additional diagnostic evaluation duration.
 - After restoring the best checkpoint: selected epoch, final validation/test metrics, and confusion matrices in the run summary.
 - Run configuration: training options, fold, cache configuration, checkpoint hash and library versions.
 
-Test metrics are still computed only after validation-based model selection. Raw EEG, per-window prediction files and checkpoint files are not explicitly uploaded by this integration. Local files remain available as before. Each run is finished before starting the next fold; training errors or keyboard interruptions mark its W&B run as failed. Tracking errors propagate rather than silently disabling your requested logging.
+Epoch test metrics are display-only; checkpoint selection and learning-rate scheduling never consume them. Final test metrics are recomputed with the validation-selected checkpoint. Raw EEG, per-window prediction files and checkpoint files are not explicitly uploaded by this integration. Local files remain available as before. Each run is finished before starting the next fold; training errors or keyboard interruptions mark its W&B run as failed. Tracking errors propagate rather than silently disabling your requested logging.
 
 For a cluster without outbound connectivity, use `WANDB_MODE=offline`. W&B stores its run under each fold's `wandb/` directory. Later, from a machine with connectivity and W&B authentication, synchronize each recorded offline run:
 
@@ -216,6 +217,36 @@ wandb sync /absolute/path/results/experiment/fold_0/wandb/offline-run-*
 
 Offline mode has no live remote dashboard until synchronization. See the [W&B network/offline guidance](https://docs.wandb.ai/support/models/articles/how-do-i-deal-with-network-issues). Neither `.env` contents nor API keys are added to the run configuration; authentication uses W&B login or exported environment variables.
 
+## Live curves and final figures
+
+New training runs automatically log these additional W&B keys:
+
+- `epoch/train_eval_loss`, `epoch/train_eval_acc`, `epoch/train_eval_balanced_accuracy`
+- `epoch/test_loss`, `epoch/test_acc`, `epoch/test_balanced_accuracy`
+- `epoch/diagnostic_duration`
+
+The existing `epoch/train_loss` is the loss observed while optimizing the model with DropPath active and changing weights. The `train_eval_*` metrics instead use a separate epoch-end pass with fixed weights, DropPath disabled, no gradients, and **all training windows**, including the incomplete tail batch. These measurements are comparable to validation and test metrics. Loss is weighted by the number of windows, not by the number of batches. The extra train/test passes add runtime but no backward passes. They restore model modes and PyTorch RNG states to avoid changing subsequent training randomness. `epoch/dur` retains the original training/validation timing; `diagnostic_duration` measures the extra evaluation and does not include W&B upload time.
+
+Test curves never select a checkpoint or affect the optimizer/schedule. Continue using validation for experimental decisions; the final test result uses each fold's validation-selected checkpoint, not whichever epoch had the highest test score. Training and test diagnostics are saved even when W&B is disabled.
+
+After all ten folds finish, generate publication figures from local files:
+
+```bash
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+python -m labram_classification plot \
+  --output models/results/mg_solo_coordination_run2
+```
+
+`--output` identifies the experiment containing `fold_0` through `fold_9`. The default destination is its `figures/` directory; override with `--figures-dir /path/to/figures`. It contains:
+
+- `learning_curves.pdf`, `learning_curves.svg`, `learning_curves.png`: three panels (BCE loss, accuracy, balanced accuracy), each showing train, validation and test.
+- `learning_curves_folds.csv`: individual fold/epoch/split measurements.
+- `learning_curves_summary.csv`: equal-weight fold means, **sample SD (ddof=1)**, and fold counts.
+
+The shaded regions are mean ± SD across ten folds, **not confidence intervals**. Train curves use `train_eval_*`, not optimization-mode loss. Bands are not clipped at metric boundaries. The command also refreshes the standard final-score summary and rejects smoke runs, incomplete runs, incompatible configurations, missing metrics, and mismatched epoch counts. It does not contact W&B or require the EEG cache/GPU. Figures can be regenerated without retraining when all necessary histories exist.
+
+Older runs lack per-epoch train accuracy and test metrics; these cannot be recovered from a single best checkpoint. The plotting command reports missing metrics rather than inventing values. Already-running jobs will not adopt this change: use a fresh output directory for a new run after updating the cluster checkout. Existing epoch histories remain untouched by plotting.
+
 ## File guide and checks
 
 | File | Responsibility |
@@ -224,6 +255,8 @@ Offline mode has no live remote dashboard until synchronization. See the [W&B ne
 | `data.py` | Discovery, MNE preprocessing, disk cache, group assignments and dataset adapter |
 | `model.py` | Offline checkpoint conversion and channel-aware binary LaBraM wrapper |
 | `training.py` | EEGClassifier subclass, layer-specific AdamW groups, accumulation, AMP and schedule |
+| `monitoring.py` | Read-only train/test epoch evaluation and durable curve logging |
+| `plotting.py` | Ten-fold mean/SD curve aggregation and PDF/SVG/PNG/CSV exports |
 | `tracking.py` | Optional W&B lifecycle, progress callbacks and final metric logging |
 | `runner.py` | Fold orchestration, manifests, selection, predictions, metrics and summary |
 | `hpc/train_cv.lsf` | Offline sequential CV job template |

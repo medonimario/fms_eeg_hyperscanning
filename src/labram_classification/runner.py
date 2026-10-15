@@ -23,6 +23,7 @@ from sklearn.metrics import (
 
 from .data import WindowDataset, fold_datasets, sha256
 from .model import load_model
+from .monitoring import evaluate_partition
 from .tracking import WandbProgress, log_result, tracked_run
 from .training import make_classifier
 
@@ -50,7 +51,7 @@ def metrics(target: np.ndarray, probability: np.ndarray) -> dict:
 
 
 def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: dict) -> dict:
-    """Fit one fold, restore its validation-selected model, and evaluate test once.
+    """Fit with diagnostic curves, then report the validation-selected model on test data.
 
     Args:
         cache: Complete prepared dataset cache.
@@ -89,6 +90,7 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
         fold=fold,
         options=options,
         steps_per_epoch=steps,
+        epoch_diagnostics_version=1,
         versions={name: version(name) for name in ("torch", "braindecode", "mne", "skorch", "numpy", "scikit-learn")},
     )
     write_json(output / "config.json", config)
@@ -100,7 +102,7 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
             flush=True,
         )
     with tracked_run(config, output) as run:
-        net = make_classifier(model, datasets["valid"], output, options)
+        net = make_classifier(model, datasets["valid"], output, options, test=datasets["test"])
         if run is not None:
             net.set_params(
                 callbacks=net.callbacks + [("wandb", WandbProgress(run, options.get("wandb_log_every", 20)))]
@@ -113,6 +115,7 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
             probability = net.predict_proba(datasets[role])[:, 1]
             rows = datasets[role].metadata.copy()
             result[role] = metrics(rows.target.to_numpy(), probability)
+            result[role]["loss"] = evaluate_partition(net, datasets[role])["loss"]
             rows["probability_class_1"] = probability
             rows["prediction"] = (probability > 0.5).astype(int)
             rows.to_csv(output / f"{role}_predictions.csv", index=False)

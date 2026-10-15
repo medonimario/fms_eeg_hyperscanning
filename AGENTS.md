@@ -41,3 +41,4 @@
 * The former tutorial package is now `src/labram_classification_lessons`; production must not import it.
 * Optional W&B: `wandb login` authenticates online logging; `wandb sync <offline-run-directory>` uploads an offline run. Set `WANDB_MODE` to online, offline, or disabled.
 * Classification `requirements.txt` targets Linux/Python 3.11/CUDA 11.8. Keep application pins grounded in the local snapshot and Torch/TorchAudio matched. `requirements-local-freeze.txt` is the unmodified local pip freeze, with provenance in `requirements-environment.json`; keep resolved HPC snapshots separate.
+* Generate ten-fold mean ± SD figures with `python -m labram_classification plot --output <experiment-directory>`. Test curves are diagnostics only; validation balanced accuracy remains the sole checkpoint-selection metric.

@@ -61,6 +61,9 @@ def parser() -> argparse.ArgumentParser:
         )
     summary = commands.add_parser("summarize", help="Summarize ten completed full-data folds")
     summary.add_argument("--output", type=Path, required=True)
+    plot = commands.add_parser("plot", help="Plot ten-fold train/validation/test mean ± SD curves")
+    plot.add_argument("--output", type=Path, required=True, help="Completed CV experiment directory")
+    plot.add_argument("--figures-dir", type=Path, help="Default: OUTPUT/figures")
     return root
 
 
@@ -77,6 +80,11 @@ def main() -> None:
             args.bad_segments,
             args.fg_endpoint,
         )
+        return
+    if args.command == "plot":
+        from .plotting import plot_curves
+
+        print(f"Saved figures and tables: {plot_curves(args.output, args.figures_dir)}")
         return
     from .runner import run_fold, summarize
 
