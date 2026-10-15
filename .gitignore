@@ -8,6 +8,7 @@ manual_test/
 
 # Mac OS-specific storage files
 .DS_Store
+._*
 
 # vim
 *.swp
@@ -22,6 +23,10 @@ __pycache__/
 
 # C extensions
 *.so
+
+# folders
+/models/
+/src/labram_classification/hpc/
 
 # Distribution / packaging
 .Python
