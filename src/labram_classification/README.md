@@ -2,6 +2,8 @@
 
 This package implements **MirrorGame**, **ForceGame feedback**, and **Circling** binary classification with the downloaded `models/labram-base.pth`. It does not contact Hugging Face. Optional W&B logging supports online, offline, and disabled modes. Friendship classification is deferred until its original labeling script is provided.
 
+A CPU-only band-power/logistic-regression comparator is available: see [BASELINES.md](BASELINES.md).
+
 The introductory scripts are now in `src/labram_classification_lessons/`; production code does not import them. Run commands below from the repository root, with `PYTHONPATH=src`. The pipeline has four stages:
 
 1. Read preprocessed EEG with MNE, preserve the dataset-specific operations below, and cache 4-second windows.
@@ -252,6 +254,7 @@ Older runs lack per-epoch train accuracy and test metrics; these cannot be recov
 | File | Responsibility |
 | --- | --- |
 | `__main__.py` | CLI arguments and command dispatch |
+| `baseline.py` | Whole-window/time-resolved band-power extraction and grouped logistic-regression baseline |
 | `data.py` | Discovery, MNE preprocessing, disk cache, group assignments and dataset adapter |
 | `model.py` | Offline checkpoint conversion and channel-aware binary LaBraM wrapper |
 | `training.py` | EEGClassifier subclass, layer-specific AdamW groups, accumulation, AMP and schedule |

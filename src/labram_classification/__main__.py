@@ -64,6 +64,22 @@ def parser() -> argparse.ArgumentParser:
     plot = commands.add_parser("plot", help="Plot ten-fold train/validation/test mean ± SD curves")
     plot.add_argument("--output", type=Path, required=True, help="Completed CV experiment directory")
     plot.add_argument("--figures-dir", type=Path, help="Default: OUTPUT/figures")
+    baseline = commands.add_parser("baseline", help="Fit log-band-power logistic regression on grouped folds")
+    baseline.add_argument("--cache", type=Path, required=True)
+    baseline.add_argument("--output", type=Path, required=True)
+    baseline.add_argument("--fold", type=int, choices=range(10), help="Omit to run all ten folds")
+    baseline.add_argument("--feature-mode", choices=["bandpower", "time-bandpower"], default="bandpower")
+    baseline.add_argument("--c-values", type=float, nargs="+", default=[0.01, 0.1, 1.0, 10.0, 100.0])
+    baseline.add_argument("--max-iter", type=int, default=2000)
+    baseline.add_argument("--seed", type=int, default=0)
+    baseline.add_argument("--num-threads", type=int, default=4)
+    baseline.add_argument("--feature-batch-size", type=int, default=64)
+    baseline.add_argument(
+        "--wandb-mode", choices=["online", "offline", "disabled"], default=os.environ.get("WANDB_MODE", "disabled")
+    )
+    baseline.add_argument("--wandb-project", default=os.environ.get("WANDB_PROJECT", "labram-classification"))
+    baseline.add_argument("--wandb-entity", default=os.environ.get("WANDB_ENTITY"))
+    baseline.add_argument("--wandb-group", default=os.environ.get("WANDB_RUN_GROUP"))
     return root
 
 
@@ -80,6 +96,13 @@ def main() -> None:
             args.bad_segments,
             args.fg_endpoint,
         )
+        return
+    if args.command == "baseline":
+        from .baseline import run_baseline
+
+        options = {key: value for key, value in vars(args).items() if key not in {"command", "cache", "output", "fold"}}
+        options["smoke_windows_per_class"] = 0
+        run_baseline(args.cache, args.output, options, args.fold)
         return
     if args.command == "plot":
         from .plotting import plot_curves

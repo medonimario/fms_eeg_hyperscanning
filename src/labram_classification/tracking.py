@@ -29,7 +29,7 @@ def tracked_run(config: dict, output: Path) -> Iterator[Any]:
         entity=options.get("wandb_entity"),
         group=group,
         name=f"{group}-fold-{config['fold']}",
-        job_type="smoke" if options["smoke_windows_per_class"] else "finetune",
+        job_type="smoke" if options["smoke_windows_per_class"] else config.get("model", "finetune"),
         mode=mode,
         dir=str(output.resolve()),
         config=config,
@@ -98,11 +98,14 @@ def log_result(run: Any, result: dict) -> None:
         return
     values = {
         f"final/{role}/{key}": value
-        for role in ("valid", "test")
+        for role in ("train", "valid", "test")
+        if role in result
         for key, value in result[role].items()
         if key != "confusion_matrix"
     }
-    values["best_epoch"] = result["best_epoch"]
+    for key in ("best_epoch", "best_C"):
+        if key in result:
+            values[key] = result[key]
     run.log(values)
     run.summary.update(values)
     for role in ("valid", "test"):

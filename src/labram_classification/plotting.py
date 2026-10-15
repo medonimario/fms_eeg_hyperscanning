@@ -31,6 +31,8 @@ def collect_curves(directory: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     for fold in range(10):
         folder = directory / f"fold_{fold}"
         config = json.loads((folder / "config.json").read_text())
+        if config.get("model") == "logistic_regression":
+            raise ValueError("Classical baselines have no epoch curves; use fold_metrics.csv and summary.json.")
         history = json.loads((folder / "history.json").read_text())
         epochs = [row["epoch"] for row in history]
         if epochs != list(range(1, config["options"]["epochs"] + 1)):

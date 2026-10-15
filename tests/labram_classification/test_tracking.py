@@ -89,3 +89,14 @@ def test_real_offline_sdk(tmp_path: Path) -> None:
     with tracked_run(configuration("offline"), tmp_path) as run:
         run.log({"epoch": 1, "epoch/train_loss": 0.7})
     assert list((tmp_path / "wandb").glob("offline-run-*/*.wandb"))
+
+
+def test_baseline_final_logging() -> None:
+    """Classical models report selected C and final scores without inventing an epoch."""
+    run = Mock()
+    run.summary = {}
+    scores = {"accuracy": 0.75, "confusion_matrix": [[2, 0], [1, 1]]}
+    log_result(run, {"best_C": 0.1, "train": scores, "valid": scores, "test": scores})
+    assert run.summary["best_C"] == 0.1
+    assert run.summary["final/train/accuracy"] == 0.75
+    assert "best_epoch" not in run.summary
