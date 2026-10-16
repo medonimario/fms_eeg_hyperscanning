@@ -1,4 +1,4 @@
-"""Strict offline conversion of the original LaBraM student checkpoint."""
+"""Binary adapters for pretrained LaBraM and randomly initialized native EEGNet."""
 
 from __future__ import annotations
 
@@ -7,13 +7,44 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from braindecode.models import Labram
+from braindecode.models import EEGNet, Labram
 from braindecode.models.labram import LABRAM_CHANNEL_ORDER
 from torch import nn
 
 from .data import CHANNELS
 
 DEFAULT_CHECKPOINT = Path(__file__).resolve().parents[2] / "models" / "labram-base.pth"
+
+
+class BinaryEEGNet(nn.Module):
+    """Adapt native EEGNet-8,2 to the shared single-logit classification interface."""
+
+    def __init__(self, drop_prob: float = 0.5) -> None:
+        """Initialize EEGNet from scratch for 64-channel, 200 Hz, four-second windows."""
+        super().__init__()
+        self.backbone = EEGNet(
+            n_chans=len(CHANNELS),
+            n_times=800,
+            n_outputs=1,
+            sfreq=200,
+            F1=8,
+            D=2,
+            F2=16,
+            kernel_length=64,
+            depthwise_kernel_length=16,
+            pool1_kernel_size=4,
+            pool2_kernel_size=8,
+            drop_prob=drop_prob,
+            final_layer_with_constraint=True,
+            conv_spatial_max_norm=1,
+            norm_rate=0.25,
+        )
+
+    def forward(self, signal: torch.Tensor) -> torch.Tensor:
+        """Return one raw logit per window, retaining the batch axis for batch size one."""
+        if signal.ndim != 3 or signal.shape[1:] != (len(CHANNELS), 800):
+            raise ValueError("Expected (batch, 64, 800) model input.")
+        return self.backbone(signal).reshape(signal.shape[0])
 
 
 class BinaryLabram(nn.Module):

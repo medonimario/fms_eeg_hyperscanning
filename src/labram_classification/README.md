@@ -4,6 +4,11 @@ This package implements **MirrorGame**, **ForceGame feedback and interaction**, 
 
 A CPU-only band-power/logistic-regression comparator is available: see [BASELINES.md](BASELINES.md).
 
+A native Braindecode **EEGNet-8,2** comparator trained from scratch is available via
+`train --model eegnet` or `cv --model eegnet`: see [EEGNET.md](EEGNET.md) for its training
+profile and HPC submission. It uses the same caches, folds, diagnostic curves and figure exports.
+Commands without `--model` retain the LaBraM defaults documented below.
+
 The introductory scripts are now in `src/labram_classification_lessons/`; production code does not import them. Run commands below from the repository root, with `PYTHONPATH=src`. The pipeline has four stages:
 
 1. Read preprocessed EEG with MNE, preserve the dataset-specific operations below, and cache 4-second windows.

@@ -22,10 +22,10 @@ from sklearn.metrics import (
 )
 
 from .data import WindowDataset, fold_datasets, sha256
-from .model import load_model
+from .model import BinaryEEGNet, load_model
 from .monitoring import evaluate_partition
 from .tracking import WandbProgress, log_result, tracked_run
-from .training import make_classifier
+from .training import make_classifier, resolve_model_options
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -56,7 +56,7 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
     Args:
         cache: Complete prepared dataset cache.
         output: New directory for this fold; existing results are never overwritten.
-        checkpoint: Original local pretraining checkpoint.
+        checkpoint: Original local LaBraM pretraining checkpoint; unused for EEGNet.
         fold: Held-out test fold in 0 through 9.
         options: Validated training options from the CLI.
 
@@ -64,7 +64,7 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
         Test metrics and the selected epoch, also saved in result.json.
     """
     cache_config, datasets = fold_datasets(cache, fold)
-    options = dict(options)
+    options = resolve_model_options(options)
     if options["lr"] is None:
         options["lr"] = 1e-4 if cache_config["dataset"] == "mg" else 5e-4
     if options["smoke_windows_per_class"]:
@@ -82,11 +82,19 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(options["seed"])
     torch.backends.cudnn.benchmark = False
-    model = load_model(checkpoint, options["drop_path"])
+    model = (
+        BinaryEEGNet(options["eegnet_dropout"])
+        if options["model"] == "eegnet"
+        else load_model(checkpoint, options["drop_path"])
+    )
     output.mkdir(parents=True, exist_ok=False)
     config = dict(
         cache=cache_config,
-        checkpoint_sha256=sha256(checkpoint),
+        model=options["model"],
+        initialization="random" if options["model"] == "eegnet" else "pretrained",
+        input_divisor=100,
+        n_parameters=sum(parameter.numel() for parameter in model.parameters()),
+        checkpoint_sha256=sha256(checkpoint) if options["model"] == "labram" else None,
         fold=fold,
         options=options,
         steps_per_epoch=steps,

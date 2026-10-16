@@ -28,21 +28,23 @@ def parser() -> argparse.ArgumentParser:
         help="FG target: feedback suffix (default), or solo T1P* vs interactive trio T3P*",
     )
     for command in ("train", "cv"):
-        run = commands.add_parser(command, help="Fine-tune one fold" if command == "train" else "Run all ten folds")
+        run = commands.add_parser(command, help="Train one fold" if command == "train" else "Run all ten folds")
         run.add_argument("--cache", type=Path, required=True)
         run.add_argument("--output", type=Path, required=True)
+        run.add_argument("--model", choices=["labram", "eegnet"], default="labram")
         run.add_argument("--checkpoint", type=Path, default=ROOT / "models" / "labram-base.pth")
         if command == "train":
             run.add_argument("--fold", type=int, choices=range(10), required=True)
-        run.add_argument("--epochs", type=int, default=10)
-        run.add_argument("--warmup-epochs", type=int, default=5)
-        run.add_argument("--batch-size", type=int, default=128)
-        run.add_argument("--update-freq", type=int, default=2)
-        run.add_argument("--lr", type=float, help="Default: 1e-4 for MG; 5e-4 for FG/Circling")
+        run.add_argument("--epochs", type=int, help="Default: LaBraM 10; EEGNet 100")
+        run.add_argument("--warmup-epochs", type=int, help="Default: LaBraM 5; EEGNet 0")
+        run.add_argument("--batch-size", type=int, help="Default: LaBraM 128; EEGNet 64")
+        run.add_argument("--update-freq", type=int, help="Default: LaBraM 2; EEGNet 1")
+        run.add_argument("--lr", type=float, help="Default: LaBraM MG 1e-4, FG/Circling 5e-4; EEGNet 1e-3")
         run.add_argument("--min-lr", type=float, default=1e-6)
-        run.add_argument("--layer-decay", type=float, default=0.65)
-        run.add_argument("--weight-decay", type=float, default=0.05)
-        run.add_argument("--drop-path", type=float, default=0.2)
+        run.add_argument("--layer-decay", type=float, help="Default: LaBraM 0.65; EEGNet 1 (required)")
+        run.add_argument("--weight-decay", type=float, help="Default: LaBraM 0.05; EEGNet 0")
+        run.add_argument("--drop-path", type=float, help="Default: LaBraM 0.2; EEGNet 0 (required)")
+        run.add_argument("--eegnet-dropout", type=float, default=0.5)
         run.add_argument("--seed", type=int, default=0)
         run.add_argument("--num-workers", type=int, default=4)
         run.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
@@ -125,6 +127,13 @@ def main() -> None:
         return
     import math
 
+    from .training import resolve_model_options
+
+    try:
+        args = argparse.Namespace(**resolve_model_options(vars(args)))
+    except ValueError as error:
+        cli.error(str(error))
+
     options = {
         key: value
         for key, value in vars(args).items()
@@ -139,6 +148,7 @@ def main() -> None:
         or args.smoke_windows_per_class < 0
         or not 0 < args.layer_decay <= 1
         or not 0 <= args.drop_path < 1
+        or not 0 <= args.eegnet_dropout < 1
         or args.weight_decay < 0
         or args.min_lr < 0
         or (args.lr is not None and args.lr <= 0)

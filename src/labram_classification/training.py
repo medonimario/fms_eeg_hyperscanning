@@ -18,6 +18,42 @@ from torch.utils.data import Dataset
 from .monitoring import EpochDiagnostics
 
 
+def resolve_model_options(options: dict) -> dict:
+    """Fill unset options from explicit model profiles, preserving user overrides."""
+    result = dict(options)
+    model = result.setdefault("model", "labram")
+    profiles = {
+        "labram": dict(
+            epochs=10,
+            warmup_epochs=5,
+            batch_size=128,
+            update_freq=2,
+            layer_decay=0.65,
+            weight_decay=0.05,
+            drop_path=0.2,
+        ),
+        "eegnet": dict(
+            epochs=100,
+            warmup_epochs=0,
+            batch_size=64,
+            update_freq=1,
+            layer_decay=1.0,
+            weight_decay=0.0,
+            drop_path=0.0,
+            lr=1e-3,
+        ),
+    }
+    if model not in profiles:
+        raise ValueError(f"Unsupported model: {model}")
+    for key, value in profiles[model].items():
+        if result.get(key) is None:
+            result[key] = value
+    if model == "eegnet" and (result["layer_decay"] != 1 or result["drop_path"] != 0):
+        raise ValueError("EEGNet requires --layer-decay 1 and --drop-path 0; use --eegnet-dropout for dropout.")
+    result.setdefault("eegnet_dropout", 0.5)
+    return result
+
+
 class BinaryLoss(nn.BCEWithLogitsLoss):
     """Accept Braindecode's integer targets and compute stable float32 binary loss."""
 
