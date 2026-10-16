@@ -21,6 +21,12 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--contrast", choices=CONTRASTS, default="solo-coordination")
     prepare.add_argument("--bad-segments", type=Path, help="Trusted local Circling exclusion pickle")
     prepare.add_argument("--fg-endpoint", choices=["strict", "trim"], default="strict")
+    prepare.add_argument(
+        "--fg-task",
+        choices=["feedback", "interaction"],
+        default="feedback",
+        help="FG target: feedback suffix (default), or solo T1P* vs interactive trio T3P*",
+    )
     for command in ("train", "cv"):
         run = commands.add_parser(command, help="Fine-tune one fold" if command == "train" else "Run all ten folds")
         run.add_argument("--cache", type=Path, required=True)
@@ -88,6 +94,8 @@ def main() -> None:
     cli = parser()
     args = cli.parse_args()
     if args.command == "prepare":
+        if args.dataset != "fg" and args.fg_task != "feedback":
+            cli.error("--fg-task interaction requires --dataset fg.")
         prepare_cache(
             source_directory(args.dataset, args.data_dir),
             args.cache,
@@ -95,6 +103,7 @@ def main() -> None:
             args.contrast,
             args.bad_segments,
             args.fg_endpoint,
+            args.fg_task,
         )
         return
     if args.command == "baseline":

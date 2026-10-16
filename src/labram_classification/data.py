@@ -115,6 +115,7 @@ def extract_windows(
     contrast: str,
     bad_segments: dict,
     fg_endpoint: str = "strict",
+    fg_task: str = "feedback",
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Reproduce the original dataset-specific operations and return microvolt windows.
 
@@ -126,9 +127,11 @@ def extract_windows(
         contrast: MirrorGame binary contrast.
         bad_segments: Circling bad six-second segment dictionary.
         fg_endpoint: strict requires 800 samples; trim permits removing only sample 801.
+        fg_task: feedback uses the event suffix; interaction keeps T1P*/T3P* as 0/1.
 
     Returns:
         Float32 microvolt windows and per-window provenance, before division by 100.
+        FG interaction files without eligible events return an empty array and frame.
     """
     epochs = epochs.copy()
     windows, rows = [], []
@@ -153,6 +156,14 @@ def extract_windows(
                     )
                 )
     elif dataset == "fg":
+        if fg_task not in {"feedback", "interaction"}:
+            raise ValueError(f"Unknown FG task: {fg_task}")
+        if fg_task == "interaction":
+            codes = [code for name, code in epochs.event_id.items() if name.startswith(("T1P", "T3P"))]
+            indices = np.flatnonzero(np.isin(epochs.events[:, 2], codes))
+            if not len(indices):
+                return np.empty((0, 64, 800), dtype=np.float32), pd.DataFrame()
+            epochs = epochs[indices]
         if not np.isclose(epochs.tmin, -0.5, atol=1 / epochs.info["sfreq"]):
             raise ValueError(f"Expected FG start at -0.5 seconds; got {epochs.tmin}.")
         epochs.crop(tmax=3.5)
@@ -177,7 +188,7 @@ def extract_windows(
                     start_sample=0,
                     source_sfreq=200,
                     condition=name,
-                    target=int(not name.endswith("n")),
+                    target=int(name.startswith("T3P")) if fg_task == "interaction" else int(not name.endswith("n")),
                 )
             )
     else:
@@ -225,8 +236,11 @@ def prepare_cache(
     contrast: str = "solo-coordination",
     bad_path: Path | None = None,
     fg_endpoint: str = "strict",
+    fg_task: str = "feedback",
 ) -> None:
     """Prepare one array per source file, publishing a cache marker only after success."""
+    if fg_task not in {"feedback", "interaction"} or (dataset != "fg" and fg_task != "feedback"):
+        raise ValueError("FG task must be feedback or interaction; interaction requires --dataset fg.")
     files = discover(directory, dataset, contrast)
     bad = {}
     if dataset == "circling":
@@ -246,7 +260,12 @@ def prepare_cache(
             if dataset == "mg"
             else mne.read_epochs(path, preload=True, verbose=False)
         )
-        signal, metadata = extract_windows(epochs, dataset, row["group"], row["condition"], contrast, bad, fg_endpoint)
+        signal, metadata = extract_windows(
+            epochs, dataset, row["group"], row["condition"], contrast, bad, fg_endpoint, fg_task
+        )
+        if metadata.empty:
+            print(f"Skipping {path.name}: no T1P*/T3P* interaction events.", flush=True)
+            continue
         filename = f"recording_{index:04d}.npy"
         np.save(destination / filename, signal, allow_pickle=False)
         for key in ("source", "group", "participant", "fold"):
@@ -256,12 +275,14 @@ def prepare_cache(
         metadata["source_bytes"] = path.stat().st_size
         metadata["source_mtime_ns"] = path.stat().st_mtime_ns
         all_metadata.append(metadata)
+    if not all_metadata:
+        raise ValueError("No usable windows remain across the source files.")
     metadata = pd.concat(all_metadata, ignore_index=True)
     metadata.to_csv(destination / "windows.csv", index=False)
     config = dict(
         format_version=1,
         dataset=dataset,
-        contrast=contrast if dataset == "mg" else "closed-open" if dataset == "circling" else "feedback",
+        contrast=contrast if dataset == "mg" else "closed-open" if dataset == "circling" else fg_task,
         channels=CHANNELS,
         sfreq=200,
         n_times=800,

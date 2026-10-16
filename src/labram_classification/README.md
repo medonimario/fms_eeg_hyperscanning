@@ -1,6 +1,6 @@
 # Production LaBraM fine-tuning with Braindecode
 
-This package implements **MirrorGame**, **ForceGame feedback**, and **Circling** binary classification with the downloaded `models/labram-base.pth`. It does not contact Hugging Face. Optional W&B logging supports online, offline, and disabled modes. Friendship classification is deferred until its original labeling script is provided.
+This package implements **MirrorGame**, **ForceGame feedback and interaction**, and **Circling** binary classification with the downloaded `models/labram-base.pth`. It does not contact Hugging Face. Optional W&B logging supports online, offline, and disabled modes. Friendship classification is deferred until its original labeling script is provided.
 
 A CPU-only band-power/logistic-regression comparator is available: see [BASELINES.md](BASELINES.md).
 
@@ -62,6 +62,9 @@ python -m labram_classification prepare --dataset mg \
 python -m labram_classification prepare --dataset fg \
   --cache data/processed/fg_feedback
 
+python -m labram_classification prepare --dataset fg --fg-task interaction \
+  --cache data/processed/fg_interaction
+
 python -m labram_classification prepare --dataset circling \
   --cache data/processed/circling \
   --bad-segments /data/circling/dict_with_short_bad_epochs.pickle
@@ -77,11 +80,40 @@ MirrorGame alternatives are `solo-spontaneous` and `spontaneous-coordination`; c
 | MG solo-spontaneous | Solo | Spontaneous | Dyad | Same |
 | MG spontaneous-coordination | Spontaneous | Coordination | Dyad | Same |
 | FG feedback | Event name ending `n` | Other event names | Triad | Crop from −0.5 to 3.5 s, resample to 200 Hz |
+| FG interaction | Solo: event name starts `T1P` | Interactive trio: event name starts `T3P` | Triad | Same FG crop/resampling; exclude other events |
 | Circling | `closed1` | `open` | Dyad | Crop first 2 s, discard practice, slide 4 s windows with 2 s stride |
 
 **MirrorGame:** filenames must match `s_101_Solo.set` (first digit is dyad member; last two are dyad). Require both members and both selected conditions per dyad. Add the average-reference projector without applying it, matching the source script; resample the full epoch, reorder the 64 channels, then slice `[0:800]` and `[400:1200]`. Already-active references remain active. The pending projector is intentionally not an additional rereference.
 
 **FG:** leading digits identify the triad and the following letter identifies the participant, e.g. `301A...-epo.fif`. Event labels reproduce the supplied script's suffix rule. No friendship labels are inferred. MNE's inclusive crop can produce **801** samples at 200 Hz. Default `--fg-endpoint strict` stops if this occurs. After inspecting the source, rerun preparation with `--fg-endpoint trim` to explicitly retain samples 0–799 (−0.5 through 3.495 s). This is recorded in cache metadata; it is an explicit correction for the inclusive endpoint, not an unreported reproduction change.
+
+**FG interaction:** select `--fg-task interaction` to reproduce `make_FG_group_folds.py`:
+retain only event names beginning `T1P` (solo, class 0) or `T3P` (interactive trio, class 1).
+Solo feedback depends on one person's force; trio feedback depends on the three-person mean.
+The prefix determines the target regardless of the feedback suffix: both feedback types are retained.
+Filtering precedes cropping/resampling, and `source_epoch` retains the original epoch index.
+Files without eligible events are reported and skipped. `files.csv` still lists all discovered files,
+and fold assignment uses all discovered triads before filtering, matching the original script.
+An entirely empty selection fails; training also rejects any partition lacking either class.
+`--fg-task feedback` remains the default and keeps its existing suffix labels and event selection.
+Use a separate cache for each task: `cache.json` records `dataset: fg` and `contrast: interaction`
+or `feedback`, and this metadata is carried into both classifiers' run configuration and W&B.
+
+To run both models on the interaction task (after preparing its cache):
+
+```bash
+python -m labram_classification cv \
+  --cache data/processed/fg_interaction --output runs/fg_interaction_labram --device cuda
+python -m labram_classification baseline \
+  --cache data/processed/fg_interaction --output runs/fg_interaction_bandpower
+python -m labram_classification baseline --feature-mode time-bandpower \
+  --cache data/processed/fg_interaction --output runs/fg_interaction_time_bandpower
+```
+
+Each command runs all ten folds; choose a new output directory for every experiment. For HPC jobs,
+point `CACHE_DIR` at the new interaction cache and give `OUTPUT_DIR` and `WANDB_RUN_GROUP` distinct
+interaction names. The existing GPU fine-tuning and CPU baseline job scripts work unchanged.
+The task is selected during preparation; no task flag or label changes are needed during training.
 
 **Circling:** `pair<digits>` identifies the group. After cropping at 2 s, discard the first 6 practice epochs (12 for pair2030). A bad dictionary index identifies a 6 s section: `trial=index//3`, section `index%3`. Exclude every candidate window with any overlap, then resample each surviving window to 200 Hz. This order matches the original script. Missing keys mean no listed exclusions, as before; a missing dictionary file is an error. Only load a trusted local pickle. The participant column retains the source recording identifier; dyad grouping is the authoritative leakage barrier.
 

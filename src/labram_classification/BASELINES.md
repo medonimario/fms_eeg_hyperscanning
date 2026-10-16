@@ -2,7 +2,10 @@
 
 The first baseline is **log-band-power features → StandardScaler → L2-regularized logistic regression**.
 It runs on CPU, uses the exact prepared EEG windows and group partitions used by LaBraM, and produces
-comparable fold metrics and per-window predictions. It works with MG, FG feedback, and Circling caches.
+comparable fold metrics and per-window predictions. It works with MG, FG feedback, FG interaction,
+and Circling caches. Prepare FG interaction with `prepare --dataset fg --fg-task interaction` in a
+new cache, then pass that cache to either feature mode. Solo `T1P*` is class 0; interactive trio
+`T3P*` is class 1. Both modes use the same triad partitions as LaBraM; see [README.md](README.md).
 No original recordings, GPU, or pretrained model checkpoint are required.
 
 ## Why these features?
