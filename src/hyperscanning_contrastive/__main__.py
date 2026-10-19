@@ -11,13 +11,21 @@ from .data import CONDITIONS, prepare, resolve_source
 def main() -> None:
     """Run a metadata audit or prepare paired EEG signals from the local dataset."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("audit", "prepare"))
+    parser.add_argument("command", choices=("audit", "prepare", "controls"))
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bad-segments", type=Path, help="Trusted local six-second artifact pickle.")
     parser.add_argument("--output", type=Path, required=True, help="New audit/cache directory.")
     parser.add_argument("--conditions", nargs="+", choices=CONDITIONS, default=list(CONDITIONS))
     parser.add_argument("--window-strategy", choices=("max-clean", "fixed-grid"), default="max-clean")
     args = parser.parse_args()
+    if args.command == "controls":
+        from .diagnostics import run_controls
+
+        report = run_controls(args.output)
+        print(f"Engineering controls passed: {report['passed']}; report: {args.output / 'controls.json'}")
+        if not report["passed"]:
+            raise SystemExit(1)
+        return
     directory = resolve_source(args.data_dir)
     summary = prepare(
         directory,

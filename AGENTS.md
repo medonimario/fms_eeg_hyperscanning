@@ -52,3 +52,5 @@
 * This uses the local Project 1 Circling dataset and its confirmed **six-second** artifact dictionary, not the public release. Exclude artifact-overlapping intervals symmetrically across each dyad. See `src/hyperscanning_contrastive/README.md` for maximal clean non-overlapping four-second windows and strict pairing checks.
 * Run targeted tests with `python -m pytest tests/hyperscanning_contrastive`. Training commands are not implemented yet.
 * The local Circling data are on the HPC at `/work3/s204684/Thesis/circling_eeg/`. Submit the CPU audit with `bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf`; use `STAGE=prepare bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf` after reviewing the audit. Create `outputs/` and `errors/` before submission. Each job writes a new output directory keyed by its job ID.
+
+* Run Stage 1 synthetic CPU controls with `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive controls --output <new-directory>`. This checks loss/retrieval and synthetic fitting, not LaBraM or EEG performance.

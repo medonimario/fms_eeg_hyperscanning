@@ -508,3 +508,5 @@ new model forward pass or training run was performed. Source documents were trea
 - Public API record checked: `https://api.figshare.com/v2/articles/32881526`, version 1, 428 file entries.
 - Online Braindecode documentation was also checked, but its stable page reports a different version; implementation
   decisions above follow the repository's pinned/local 1.8.1 source rather than assuming those pages are identical.
+
+Implementation update: synthetic-vector Stage 1 controls are available through `controls`; see README.md. These cover symmetric loss, explicit candidate masks, tie-aware ranks, tiny-set fitting, held-out shared latents, and independent-vector retrieval. Real-EEG/backbone checks and trial-permutation nulls remain outstanding.

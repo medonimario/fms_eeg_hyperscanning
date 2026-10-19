@@ -122,3 +122,24 @@ Even a ten-fold cache does not commit us to a training/validation/test protocol;
 
 See [PLAN.md](PLAN.md) for the research roadmap. The public release was researched as background; its format and
 artifact-marker description are not applied to this local cache.
+
+## Stage 1: synthetic engineering controls
+
+Run the CPU controls in a new output directory:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive controls --output runs/contrastive-controls
+```
+
+This needs Torch but no cache, pretrained checkpoint, or GPU. It checks identical-view retrieval, tiny-set
+contrastive fitting, generalization to held-out synthetic shared latent vectors mixed through different sensors,
+and retrieval of independent random vectors. The synthetic experiment uses two linear adapters to isolate
+loss/optimizer behavior; these are not the proposed LaBraM architecture. `controls.json` records the seed,
+losses, ranks, chance rate, and explicit engineering gates. A failed gate returns a nonzero exit code.
+The independent control averages 100 synthetic repeats; its tolerance is an engineering check, not a scientific
+significance test. Tied similarities receive fractional top-one credit, so collapsed embeddings score at chance.
+
+The loss supports an explicit candidate mask and symmetric InfoNCE. Every anchor needs its diagonal positive
+and at least one eligible negative in both directions. Real-EEG metadata-based candidate construction,
+trial-level permutation nulls, LaBraM forward/backward checks, and real-cache tiny-set overfitting remain to be
+implemented before Stage 1 is complete. These synthetic results do not establish hyperscanning performance.
