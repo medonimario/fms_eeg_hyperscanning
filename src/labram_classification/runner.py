@@ -85,16 +85,16 @@ def run_fold(cache: Path, output: Path, checkpoint: Path, fold: int, options: di
     model = (
         BinaryEEGNet(options["eegnet_dropout"])
         if options["model"] == "eegnet"
-        else load_model(checkpoint, options["drop_path"])
+        else load_model(checkpoint, options["drop_path"], options["initialization"])
     )
     output.mkdir(parents=True, exist_ok=False)
     config = dict(
         cache=cache_config,
         model=options["model"],
-        initialization="random" if options["model"] == "eegnet" else "pretrained",
+        initialization=options["initialization"],
         input_divisor=100,
         n_parameters=sum(parameter.numel() for parameter in model.parameters()),
-        checkpoint_sha256=sha256(checkpoint) if options["model"] == "labram" else None,
+        checkpoint_sha256=sha256(checkpoint) if options["initialization"] == "pretrained" else None,
         fold=fold,
         options=options,
         steps_per_epoch=steps,

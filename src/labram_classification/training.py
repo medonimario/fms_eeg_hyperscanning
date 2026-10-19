@@ -22,6 +22,12 @@ def resolve_model_options(options: dict) -> dict:
     """Fill unset options from explicit model profiles, preserving user overrides."""
     result = dict(options)
     model = result.setdefault("model", "labram")
+    if result.get("initialization") is None:
+        result["initialization"] = "random" if model == "eegnet" else "pretrained"
+    if result["initialization"] not in {"pretrained", "random"}:
+        raise ValueError("Initialization must be pretrained or random.")
+    if model == "eegnet" and result["initialization"] != "random":
+        raise ValueError("EEGNet supports only --initialization random.")
     profiles = {
         "labram": dict(
             epochs=10,
@@ -45,6 +51,8 @@ def resolve_model_options(options: dict) -> dict:
     }
     if model not in profiles:
         raise ValueError(f"Unsupported model: {model}")
+    if model == "labram" and result["initialization"] == "random":
+        profiles["labram"].update(epochs=100, layer_decay=1.0, lr=1e-4)
     for key, value in profiles[model].items():
         if result.get(key) is None:
             result[key] = value

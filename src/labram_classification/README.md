@@ -9,6 +9,10 @@ A native Braindecode **EEGNet-8,2** comparator trained from scratch is available
 profile and HPC submission. It uses the same caches, folds, diagnostic curves and figure exports.
 Commands without `--model` retain the LaBraM defaults documented below.
 
+For the pretraining ablation, use `--model labram --initialization random` with the same caches.
+See [RANDOM_LABRAM.md](RANDOM_LABRAM.md) for starting settings, matched-protocol comparisons,
+and the dedicated HPC job template. Existing LaBraM commands still initialize from pretrained weights.
+
 The introductory scripts are now in `src/labram_classification_lessons/`; production code does not import them. Run commands below from the repository root, with `PYTHONPATH=src`. The pipeline has four stages:
 
 1. Read preprocessed EEG with MNE, preserve the dataset-specific operations below, and cache 4-second windows.

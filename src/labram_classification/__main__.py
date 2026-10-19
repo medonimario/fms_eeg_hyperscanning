@@ -32,16 +32,23 @@ def parser() -> argparse.ArgumentParser:
         run.add_argument("--cache", type=Path, required=True)
         run.add_argument("--output", type=Path, required=True)
         run.add_argument("--model", choices=["labram", "eegnet"], default="labram")
+        run.add_argument(
+            "--initialization",
+            choices=["pretrained", "random"],
+            help="Default: LaBraM pretrained; EEGNet random. Scratch LaBraM: 100 epochs, LR 1e-4, layer decay 1.",
+        )
         run.add_argument("--checkpoint", type=Path, default=ROOT / "models" / "labram-base.pth")
         if command == "train":
             run.add_argument("--fold", type=int, choices=range(10), required=True)
-        run.add_argument("--epochs", type=int, help="Default: LaBraM 10; EEGNet 100")
+        run.add_argument("--epochs", type=int, help="Default: pretrained LaBraM 10; random LaBraM/EEGNet 100")
         run.add_argument("--warmup-epochs", type=int, help="Default: LaBraM 5; EEGNet 0")
         run.add_argument("--batch-size", type=int, help="Default: LaBraM 128; EEGNet 64")
         run.add_argument("--update-freq", type=int, help="Default: LaBraM 2; EEGNet 1")
-        run.add_argument("--lr", type=float, help="Default: LaBraM MG 1e-4, FG/Circling 5e-4; EEGNet 1e-3")
+        run.add_argument(
+            "--lr", type=float, help="Default: pretrained LaBraM MG 1e-4, FG/Circling 5e-4; random 1e-4; EEGNet 1e-3"
+        )
         run.add_argument("--min-lr", type=float, default=1e-6)
-        run.add_argument("--layer-decay", type=float, help="Default: LaBraM 0.65; EEGNet 1 (required)")
+        run.add_argument("--layer-decay", type=float, help="Default: pretrained LaBraM 0.65; random LaBraM/EEGNet 1")
         run.add_argument("--weight-decay", type=float, help="Default: LaBraM 0.05; EEGNet 0")
         run.add_argument("--drop-path", type=float, help="Default: LaBraM 0.2; EEGNet 0 (required)")
         run.add_argument("--eegnet-dropout", type=float, default=0.5)

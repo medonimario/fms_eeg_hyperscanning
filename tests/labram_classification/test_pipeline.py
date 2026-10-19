@@ -128,11 +128,13 @@ def test_local_checkpoint_forward_backward() -> None:
     assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters())
 
 
-@pytest.mark.skipif(not DEFAULT_CHECKPOINT.exists(), reason="Local pretrained checkpoint unavailable")
-def test_real_model_training_and_exports(tmp_path: Path) -> None:
+@pytest.mark.parametrize("initialization", ["pretrained", "random"])
+def test_real_model_training_and_exports(tmp_path: Path, initialization: str) -> None:
     """Exercise EEGClassifier selection, checkpoint restore, and ordered predictions end to end."""
     from labram_classification.runner import run_fold
 
+    if initialization == "pretrained" and not DEFAULT_CHECKPOINT.exists():
+        pytest.skip("Local pretrained checkpoint unavailable")
     torch.set_num_threads(2)
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -158,6 +160,7 @@ def test_real_model_training_and_exports(tmp_path: Path) -> None:
         )
     )
     options = dict(
+        initialization=initialization,
         lr=1e-4,
         min_lr=1e-6,
         epochs=1,
@@ -174,7 +177,11 @@ def test_real_model_training_and_exports(tmp_path: Path) -> None:
         smoke_windows_per_class=2,
     )
     output = tmp_path / "fold"
-    result = run_fold(cache, output, DEFAULT_CHECKPOINT, 0, options)
+    checkpoint = DEFAULT_CHECKPOINT if initialization == "pretrained" else tmp_path / "absent.pth"
+    result = run_fold(cache, output, checkpoint, 0, options)
+    config = json.loads((output / "config.json").read_text())
+    assert config["initialization"] == initialization
+    assert (config["checkpoint_sha256"] is None) == (initialization == "random")
     assert result["best_epoch"] == 1
     assert result["smoke"]
     assert (output / "best_model.pt").is_file()

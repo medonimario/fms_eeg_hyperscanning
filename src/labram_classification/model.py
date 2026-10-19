@@ -139,17 +139,21 @@ def convert_student_weights(student: dict[str, torch.Tensor], n_time_entries: in
     return converted
 
 
-def load_model(checkpoint: Path = DEFAULT_CHECKPOINT, drop_path: float = 0.2) -> BinaryLabram:
-    """Load the local pretrained backbone and add a new binary classification head.
+def load_model(
+    checkpoint: Path = DEFAULT_CHECKPOINT, drop_path: float = 0.2, initialization: str = "pretrained"
+) -> BinaryLabram:
+    """Construct identical LaBraM architectures with pretrained or native random weights.
 
     Args:
         drop_path: Stochastic depth rate used during fine-tuning.
         checkpoint: Original local labram-base.pth file; no network access is used.
+        initialization: pretrained loads the backbone; random never reads the checkpoint.
 
     Returns:
-        Trainable binary model with mean pooling and verified backbone weights.
+        Trainable binary model with mean pooling and the same fresh head initialization.
     """
-    student = read_student_weights(checkpoint)
+    if initialization not in {"pretrained", "random"}:
+        raise ValueError(f"Unknown LaBraM initialization: {initialization}")
     backbone = Labram(
         n_times=800,
         n_chans=128,
@@ -160,9 +164,11 @@ def load_model(checkpoint: Path = DEFAULT_CHECKPOINT, drop_path: float = 0.2) ->
         qkv_bias=False,
         use_abs_pos_emb=True,
     )
-    state = convert_student_weights(student, backbone.temporal_embedding.shape[1])
-    state.update({name: value for name, value in backbone.state_dict().items() if name.startswith("fc_norm.")})
-    backbone.load_state_dict(state, strict=True)
+    if initialization == "pretrained":
+        student = read_student_weights(checkpoint)
+        state = convert_student_weights(student, backbone.temporal_embedding.shape[1])
+        state.update({name: value for name, value in backbone.state_dict().items() if name.startswith("fc_norm.")})
+        backbone.load_state_dict(state, strict=True)
     backbone.reset_head(1)
     nn.init.trunc_normal_(backbone.final_layer.weight, std=0.02)
     nn.init.zeros_(backbone.final_layer.bias)
