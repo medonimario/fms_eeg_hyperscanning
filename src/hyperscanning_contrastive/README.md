@@ -87,9 +87,11 @@ Do not let missing-window patterns or differing candidate counts become a retrie
 
 Exactly two distinct participant files must exist per `pair<digits>` group. The tool requires identical original
 event arrays, event-name mappings, epoch selections, sampling rates, and time axes across participants. Original
-selections must be contiguous from zero, and event samples strictly increase. This conservative first version rejects
-previously dropped/reindexed epochs, even if both members dropped the same ones, because the dictionary's trial
-numbering could otherwise shift. Resolve those cases from original acquisition provenance before adding an adapter;
+selection IDs and event samples must strictly increase. Selection IDs may start above zero or contain gaps when
+all omitted drop-log entries are exactly `IGNORED` (events excluded during epoch selection). These IDs are
+provenance, not artifact indices: artifacts use condition-local row order after practice removal, as in Project 1.
+Actual dropped epochs or unexplained gaps are rejected, even if both members match, because the dictionary's
+trial numbering could otherwise shift. The error includes example drop-log entries for diagnosis. Resolve those cases from original acquisition provenance before adding an adapter;
 never just pair the nth surviving epoch. Matching arrays alone cannot detect an upstream reset of both selections,
 so the local source provenance still needs review.
 

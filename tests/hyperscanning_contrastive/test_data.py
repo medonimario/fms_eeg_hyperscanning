@@ -133,6 +133,33 @@ def test_matching_dropped_epochs_still_fail() -> None:
         plan_pair(epochs, epochs.copy(), 2010, {})
 
 
+@pytest.mark.parametrize("offset,stride", [(1, 1), (2, 3)])
+def test_ignored_event_gaps_preserve_artifact_mapping(tmp_path: Path, offset: int, stride: int) -> None:
+    """Keep condition-local artifact indices across FIF roundtrips with ignored source events."""
+    epochs = make_epochs()
+    epochs.selection = offset + np.arange(len(epochs)) * stride
+    selected = set(epochs.selection)
+    epochs.drop_log = tuple(() if i in selected else ("IGNORED",) for i in range(int(epochs.selection[-1]) + 2))
+    path = tmp_path / "ignored-epo.fif"
+    epochs.save(path, verbose=False)
+    restored = mne.read_epochs(path, preload=False, verbose=False)
+    rows, _ = plan_pair(restored, restored.copy(), 2010, {"2010_open": [0]}, conditions=("open",))
+    assert [row["onset_s"] for row in rows] == [8, 12, 16]
+    assert {row["source_row"] for row in rows} == {7}
+    assert {row["source_epoch"] for row in rows} == {offset + 7 * stride}
+    assert {row["condition_trial"] for row in rows} == {0}
+
+
+@pytest.mark.parametrize("reason", [(), ("USER",), ("BAD_blink",), ("IGNORED", "USER")])
+def test_unresolved_gap_provenance_fails(reason: tuple[str, ...]) -> None:
+    """Reject unexplained gaps and real drops rather than shifting artifact indices."""
+    epochs = make_epochs()
+    epochs.selection = np.arange(len(epochs)) + 1
+    epochs.drop_log = (reason,) + tuple(() for _ in epochs.selection)
+    with pytest.raises(ValueError, match="Drop-log examples"):
+        plan_pair(epochs, epochs.copy(), 2010, {})
+
+
 def test_out_of_range_artifact_fails() -> None:
     """Reject a dictionary whose trial numbering is incompatible with the recordings."""
     epochs = make_epochs()

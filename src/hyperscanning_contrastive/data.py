@@ -120,11 +120,25 @@ def validate_pair(first: mne.BaseEpochs, second: mne.BaseEpochs, group: int) -> 
         raise ValueError(f"Dyad {group}: event dictionaries differ.")
     if not np.array_equal(first.times, second.times) or first.info["sfreq"] != second.info["sfreq"]:
         raise ValueError(f"Dyad {group}: sampling clocks or epoch time axes differ.")
-    if not np.array_equal(first.selection, np.arange(len(first))):
-        raise ValueError(f"Dyad {group}: previously dropped/reindexed epochs make six-second indices ambiguous.")
     if len(first.events) > 1 and np.any(np.diff(first.events[:, 0]) <= 0):
         raise ValueError(f"Dyad {group}: event samples must be strictly increasing.")
     for epochs in (first, second):
+        selection = epochs.selection
+        if len(selection) != len(epochs) or np.any(selection < 0) or np.any(np.diff(selection) <= 0):
+            raise ValueError(f"Dyad {group}: invalid original epoch selection.")
+        selected = set(selection.tolist())
+        if selected and max(selected) >= len(epochs.drop_log):
+            raise ValueError(f"Dyad {group}: selection exceeds available drop-log provenance.")
+        unresolved = [
+            (index, reasons)
+            for index, reasons in enumerate(epochs.drop_log)
+            if (index in selected and reasons) or (index not in selected and reasons != ("IGNORED",))
+        ]
+        if unresolved:
+            raise ValueError(
+                f"Dyad {group}: dropped/reindexed epochs make six-second indices ambiguous; "
+                f"only IGNORED event gaps are allowed. Drop-log examples: {unresolved[:5]}."
+            )
         if len(set(epochs.ch_names)) != len(epochs.ch_names) or not set(CHANNELS) <= set(epochs.ch_names):
             raise ValueError(f"Dyad {group}: missing or duplicate EEG channels.")
         if any(kind != "eeg" for kind in epochs.get_channel_types(picks=CHANNELS)):
@@ -316,7 +330,7 @@ def prepare(
         format_version=1,
         dataset="circling-local-project1",
         operation="prepare" if write_signals else "audit",
-        pairing="strict identical original events, selection and time axes; no dropped source epochs",
+        pairing="strict identical original events, selection and time axes; only IGNORED event gaps allowed",
         conditions=list(conditions),
         channels=CHANNELS,
         units="microvolts",
