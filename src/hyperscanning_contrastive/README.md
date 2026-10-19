@@ -140,6 +140,46 @@ The independent control averages 100 synthetic repeats; its tolerance is an engi
 significance test. Tied similarities receive fractional top-one credit, so collapsed embeddings score at chance.
 
 The loss supports an explicit candidate mask and symmetric InfoNCE. Every anchor needs its diagonal positive
-and at least one eligible negative in both directions. Real-EEG metadata-based candidate construction,
-trial-level permutation nulls, LaBraM forward/backward checks, and real-cache tiny-set overfitting remain to be
-implemented before Stage 1 is complete. These synthetic results do not establish hyperscanning performance.
+and at least one eligible negative in both directions. General real-EEG candidate construction and
+trial-level permutation nulls remain outstanding. LaBraM forward/backward checks and real-cache tiny-set overfitting
+are now available through the `overfit` command below. Synthetic results do not establish hyperscanning performance.
+
+## Stage 1: tiny-set LaBraM EEG overfit
+
+Use the completed paired cache (`cache.json` must exist). The default experiment freezes pretrained LaBraM,
+extracts pooled features once, and fits a shared 200→256→128 projection to eight partner pairs. This can run on CPU:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive overfit \
+  --cache /path/to/completed/cache --output runs/circling-tiny-pretrained
+```
+
+For the HPC wrapper, create `outputs/` and `errors/`, then submit:
+
+```bash
+CACHE=/path/to/completed/cache bsub < src/hyperscanning_contrastive/hpc/circling_overfit.lsf
+```
+
+The wrapper lives in the existing git-ignored `hpc/` directory; copy it explicitly when syncing through Git.
+Use `--initialization random` for the architecture control: no pretrained file is read or hashed. For encoder
+fine-tuning, run the Python command with `--train-backbone --device cuda` inside a GPU allocation and a new output
+directory. The CPU wrapper deliberately performs only the frozen-backbone diagnostic.
+
+The loader verifies manifest hashes and the selected array hash, channel order, microvolt units, shape, and sampling
+contract. Input scaling is `/100` exactly once inside the encoder. It reuses Project 1's native LaBraM checkpoint
+conversion without modifying the classification package; the binary head is replaced by identity before the shared
+projection. Both branches use the same model. Dropout/stochastic depth are disabled for deterministic tiny-set fitting.
+
+Selection is deterministic: development fold 0, the first eligible dyad, condition `open`, offset zero, and one window
+per distinct trial. Override with `--development-fold`, `--group`, `--condition`, and `--pairs` when needed. A requested
+group must belong to the requested fold. Keep these development choices fixed; do not cycle through held-out groups
+to get a passing result. All candidates share participant identity, condition, and offset. No trial repeats appear as
+false negatives. This is deliberately a small memorization task, not held-out partner retrieval or Stage 2 SSL.
+
+Outputs are `selected_windows.csv`, `history.csv`, `model.pt`, and `overfit.json`, including baseline/final bidirectional
+retrieval, loss, chance, cache/checkpoint fingerprints, and settings. Pass requires top-one ≥0.99 and final loss below
+10% of initial loss. Failure returns a nonzero exit code but retains the report; inspect training curves before changing
+settings. Frozen features can limit fitting, so failure alone does not invalidate the encoder or the scientific idea.
+
+After this check, the next implementation is single-person augmented-view learning with held-out-group evaluation.
+Real-EEG candidate masks and trial-permutation nulls are still needed before the main partner-retrieval experiments.

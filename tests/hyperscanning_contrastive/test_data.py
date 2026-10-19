@@ -232,3 +232,37 @@ def test_nonfinite_signal_no_completion(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Invalid signal"):
         prepare(source, tmp_path / "cache", bad_path, write_signals=True)
     assert not (tmp_path / "cache" / "cache.json").exists()
+
+
+def test_tiny_batch_contract_and_checksum(tmp_path: Path) -> None:
+    """Read one window per trial without scaling and reject modified cache signals."""
+    from hyperscanning_contrastive.overfit import load_tiny_batch, run_overfit
+
+    source = tmp_path / "preprocessed"
+    source.mkdir()
+    make_epochs(practice=9).save(source / "pair2010a_ave_epo.fif", verbose=False)
+    make_epochs(value=7e-6, practice=9).save(source / "pair2010b_ave_epo.fif", verbose=False)
+    bad = tmp_path / "bad.pickle"
+    bad.write_bytes(pickle.dumps({}))
+    cache = tmp_path / "cache"
+    prepare(source, cache, bad, write_signals=True)
+    signal, rows, _ = load_tiny_batch(cache, pairs=2)
+    assert signal.shape == (2, 2, 64, 800)
+    assert rows.trial_id.nunique() == 2
+    assert rows.crop_start_s.eq(0).all()
+    np.testing.assert_allclose(signal[:, 0], 2, atol=1e-5)
+    np.testing.assert_allclose(signal[:, 1], 7, atol=1e-5)
+    with pytest.raises(ValueError, match="development dyad"):
+        load_tiny_batch(cache, pairs=2, fold=1)
+    report = run_overfit(
+        cache, tmp_path / "fit", tmp_path / "nonexistent.pth", initialization="random", pairs=2, steps=2
+    )
+    assert report["checkpoint_sha256"] is None
+    assert report["final"]["top1"] == 0.5
+    assert not report["passed"]
+    assert (tmp_path / "fit" / "model.pt").exists()
+    assert (tmp_path / "fit" / "overfit.json").exists()
+    with (cache / "pair_2010.npy").open("ab") as stream:
+        stream.write(b"changed")
+    with pytest.raises(ValueError, match="checksum"):
+        load_tiny_batch(cache, pairs=2)

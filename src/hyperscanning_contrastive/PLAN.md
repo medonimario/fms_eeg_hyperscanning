@@ -1,7 +1,7 @@
 **Project 2: contrastive learning for partner-EEG retrieval**
 
-Discussion draft, updated 19 October 2026. Stage 0 audit/cache tools are implemented; no training pipeline has been
-implemented. Proposed training settings below are starting hypotheses, not established optimal parameters.
+Discussion draft, updated 19 October 2026. Stage 0 audit/cache tools and Stage 1 synthetic/tiny-set diagnostics are implemented; full training/CV remains
+unimplemented. Proposed training settings below are starting hypotheses, not established optimal parameters.
 
 Confirmed with the user: use the **local Circling dataset used for Project 1**, not the public release. Its artifact
 dictionary indexes **six-second sections** after the two-second crop and practice removal. These local conventions
@@ -510,3 +510,5 @@ new model forward pass or training run was performed. Source documents were trea
   decisions above follow the repository's pinned/local 1.8.1 source rather than assuming those pages are identical.
 
 Implementation update: synthetic-vector Stage 1 controls are available through `controls`; see README.md. These cover symmetric loss, explicit candidate masks, tie-aware ranks, tiny-set fitting, held-out shared latents, and independent-vector retrieval. Real-EEG/backbone checks and trial-permutation nulls remain outstanding.
+
+Implementation update: `overfit` now verifies and loads the paired cache, uses a shared channel-aware LaBraM with a projection head, and fits distinct development trials. Frozen/pretrained, frozen/random, and trainable-backbone modes are supported. This is a memorization diagnostic; Stage 2 and held-out partner evaluation remain unimplemented.

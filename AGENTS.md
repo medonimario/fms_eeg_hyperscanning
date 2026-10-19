@@ -50,7 +50,9 @@
 
 * Set `PYTHONPATH=src`; use `python -m hyperscanning_contrastive audit --data-dir <local-circling> --output <new-audit>` for Stage 0 metadata checks, and `python -m hyperscanning_contrastive prepare --data-dir <local-circling> --output <new-cache>` to save paired signals. Supply `--bad-segments <trusted-local-pickle>` when it is not in the dataset parent directory.
 * This uses the local Project 1 Circling dataset and its confirmed **six-second** artifact dictionary, not the public release. Exclude artifact-overlapping intervals symmetrically across each dyad. See `src/hyperscanning_contrastive/README.md` for maximal clean non-overlapping four-second windows and strict pairing checks.
-* Run targeted tests with `python -m pytest tests/hyperscanning_contrastive`. Training commands are not implemented yet.
+* Run targeted tests with `python -m pytest tests/hyperscanning_contrastive`. The `overfit` command is a development-only training diagnostic; full training/CV is not implemented.
 * The local Circling data are on the HPC at `/work3/s204684/Thesis/circling_eeg/`. Submit the CPU audit with `bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf`; use `STAGE=prepare bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf` after reviewing the audit. Create `outputs/` and `errors/` before submission. Each job writes a new output directory keyed by its job ID.
 
 * Run Stage 1 synthetic CPU controls with `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive controls --output <new-directory>`. This checks loss/retrieval and synthetic fitting, not LaBraM or EEG performance.
+
+* Run `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive overfit --cache <paired-cache> --output <new-run>` for a frozen-LaBraM tiny-set diagnostic. Use `--initialization random` without checkpoint access; `--train-backbone --device cuda` enables encoder updates. See the package README and `hpc/circling_overfit.lsf`.
