@@ -126,19 +126,6 @@ def validate_pair(first: mne.BaseEpochs, second: mne.BaseEpochs, group: int) -> 
         selection = epochs.selection
         if len(selection) != len(epochs) or np.any(selection < 0) or np.any(np.diff(selection) <= 0):
             raise ValueError(f"Dyad {group}: invalid original epoch selection.")
-        selected = set(selection.tolist())
-        if selected and max(selected) >= len(epochs.drop_log):
-            raise ValueError(f"Dyad {group}: selection exceeds available drop-log provenance.")
-        unresolved = [
-            (index, reasons)
-            for index, reasons in enumerate(epochs.drop_log)
-            if (index in selected and reasons) or (index not in selected and reasons != ("IGNORED",))
-        ]
-        if unresolved:
-            raise ValueError(
-                f"Dyad {group}: dropped/reindexed epochs make six-second indices ambiguous; "
-                f"only IGNORED event gaps are allowed. Drop-log examples: {unresolved[:5]}."
-            )
         if len(set(epochs.ch_names)) != len(epochs.ch_names) or not set(CHANNELS) <= set(epochs.ch_names):
             raise ValueError(f"Dyad {group}: missing or duplicate EEG channels.")
         if any(kind != "eeg" for kind in epochs.get_channel_types(picks=CHANNELS)):
@@ -330,7 +317,7 @@ def prepare(
         format_version=1,
         dataset="circling-local-project1",
         operation="prepare" if write_signals else "audit",
-        pairing="strict identical original events, selection and time axes; only IGNORED event gaps allowed",
+        pairing="strict identical supplied FIF events, selection and time axes",
         conditions=list(conditions),
         channels=CHANNELS,
         units="microvolts",
@@ -341,7 +328,7 @@ def prepare(
         crop_interval_seconds=[2, 20],
         artifact_segment_seconds=6,
         artifact_segments_per_trial=3,
-        artifact_index_origin="condition-local experimental trial after practice removal and two-second crop",
+        artifact_index_origin="condition-local trial in supplied FIF after practice removal and two-second crop",
         artifact_policy="exclude positive-duration overlap for both participants; touching endpoints are allowed",
         missing_artifact_keys=sorted(used_keys - set(bad)),
         unused_artifact_keys=sorted(set(bad) - used_keys),

@@ -125,12 +125,12 @@ def test_ambiguous_alignment_fails(mutation: str) -> None:
         plan_pair(first, second, 2010, {})
 
 
-def test_matching_dropped_epochs_still_fail() -> None:
-    """Even matching exclusions need original dictionary-to-trial provenance before reuse."""
-    epochs = make_epochs()
-    epochs.drop([6], verbose=False)
-    with pytest.raises(ValueError, match="ambiguous"):
-        plan_pair(epochs, epochs.copy(), 2010, {})
+def test_mismatched_selections_fail() -> None:
+    """Reject different source epoch identities even when retained event arrays match."""
+    first, second = make_epochs(), make_epochs()
+    second.selection = second.selection + 1
+    with pytest.raises(ValueError, match="events/selection differ"):
+        plan_pair(first, second, 2010, {})
 
 
 @pytest.mark.parametrize("offset,stride", [(1, 1), (2, 3)])
@@ -150,14 +150,23 @@ def test_ignored_event_gaps_preserve_artifact_mapping(tmp_path: Path, offset: in
     assert {row["condition_trial"] for row in rows} == {0}
 
 
-@pytest.mark.parametrize("reason", [(), ("USER",), ("BAD_blink",), ("IGNORED", "USER")])
-def test_unresolved_gap_provenance_fails(reason: tuple[str, ...]) -> None:
-    """Reject unexplained gaps and real drops rather than shifting artifact indices."""
-    epochs = make_epochs()
-    epochs.selection = np.arange(len(epochs)) + 1
-    epochs.drop_log = (reason,) + tuple(() for _ in epochs.selection)
-    with pytest.raises(ValueError, match="Drop-log examples"):
-        plan_pair(epochs, epochs.copy(), 2010, {})
+@pytest.mark.parametrize("reason", [("USER",), ("BAD boundary",), ("IGNORED", "USER")])
+def test_historical_drop_log_preserves_supplied_trial_mapping(tmp_path: Path, reason: tuple[str, ...]) -> None:
+    """Historical metadata must not shift artifact indices defined on the supplied FIF rows."""
+    epochs = make_epochs(practice=9)
+    epochs.selection = np.arange(len(epochs)) * 2 + 1
+    selected = set(epochs.selection)
+    epochs.drop_log = tuple(() if i in selected else reason for i in range(int(epochs.selection[-1]) + 2))
+    path = tmp_path / "history-epo.fif"
+    epochs.save(path, verbose=False)
+    restored = mne.read_epochs(path, preload=False, verbose=False)
+    rows, trials = plan_pair(restored, restored.copy(), 2010, {"2010_open": [3]}, conditions=("open",))
+    assert [trial["retained_windows"] for trial in trials] == [4, 3]
+    assert [row["source_row"] for row in rows] == [7] * 4 + [10] * 3
+    assert [row["source_epoch"] for row in rows] == [15] * 4 + [21] * 3
+    assert [row["onset_s"] for row in rows if row["condition_trial"] == 1] == [8, 12, 16]
+    signal = extract_pair(restored, restored.copy(), rows)
+    np.testing.assert_array_equal(signal[:, 0], signal[:, 1])
 
 
 def test_out_of_range_artifact_fails() -> None:

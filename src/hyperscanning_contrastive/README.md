@@ -87,13 +87,14 @@ Do not let missing-window patterns or differing candidate counts become a retrie
 
 Exactly two distinct participant files must exist per `pair<digits>` group. The tool requires identical original
 event arrays, event-name mappings, epoch selections, sampling rates, and time axes across participants. Original
-selection IDs and event samples must strictly increase. Selection IDs may start above zero or contain gaps when
-all omitted drop-log entries are exactly `IGNORED` (events excluded during epoch selection). These IDs are
-provenance, not artifact indices: artifacts use condition-local row order after practice removal, as in Project 1.
-Actual dropped epochs or unexplained gaps are rejected, even if both members match, because the dictionary's
-trial numbering could otherwise shift. The error includes example drop-log entries for diagnosis. Resolve those cases from original acquisition provenance before adding an adapter;
-never just pair the nth surviving epoch. Matching arrays alone cannot detect an upstream reset of both selections,
-so the local source provenance still needs review.
+selection IDs and event samples must strictly increase. Selection IDs may start above zero or contain gaps.
+The dataset owner supplied these FIF files together with the six-second artifact dictionary; the user confirmed
+that the dictionary's exclusions have not been applied to these files. Treat the supplied FIF row order as the
+reference, matching Project 1: remove practice rows, select the condition, then interpret dictionary index `i`
+as condition-local trial `i // 3`, section `i % 3`. Do not drop additional full trials before this mapping.
+Historical `drop_log` entries (including `USER` and `BAD boundary`) do not invalidate this source contract or
+insert missing trials into the dictionary indexing. Selection IDs remain provenance, not artifact indices.
+Pairing still requires matching event arrays and selections, rather than relying on row counts alone.
 
 Practice counts, full analysis-interval coverage, EEG channel types, and dictionary bounds are checked. Local group
 and participant names are preserved. Array member 0/1 follows sorted filenames and conveys no social role.
