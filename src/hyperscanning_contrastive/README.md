@@ -1,6 +1,6 @@
 # Project 2: paired Circling data
 
-Stage 0 provides an audit and paired cache for the **local dataset used by Project 1**. Training is not implemented.
+Stage 0 provides an audit and paired cache for the **local dataset used by Project 1**. Stage 1 diagnostics and Stage 2 single-person SSL are available below.
 Use the existing `braindecode-env` environment. No new dependencies are required.
 
 The user-confirmed HPC source is `/work3/s204684/Thesis/circling_eeg/`. It is not mounted on the development Mac;
@@ -181,5 +181,86 @@ retrieval, loss, chance, cache/checkpoint fingerprints, and settings. Pass requi
 10% of initial loss. Failure returns a nonzero exit code but retains the report; inspect training curves before changing
 settings. Frozen features can limit fitting, so failure alone does not invalidate the encoder or the scientific idea.
 
-After this check, the next implementation is single-person augmented-view learning with held-out-group evaluation.
+After this check, run Stage 2 single-person augmented-view learning with held-out-group evaluation below.
 Real-EEG candidate masks and trial-permutation nulls are still needed before the main partner-retrieval experiments.
+
+## Stage 2: single-person augmented-view SSL
+
+This pilot asks whether two independently augmented versions of a person's EEG window can be matched on unseen
+dyads. It does **not** use the partner as a positive and does not test interactive versus non-interactive coupling.
+
+The default fixed split is validation fold 1, test fold 2, and all remaining folds for training. Fold 0, used in
+Stage 1 development, remains in training. For the 52-dyad cache this gives 41 training, 6 validation, and 5 test dyads.
+This is one exploratory split, not ten-fold CV. All three conditions and both participants are used. Do not change
+folds between initialization comparisons or move validation/test groups into training after inspecting their results.
+
+The first pilot deliberately uses only clean windows at crop offset zero (source epoch seconds 2–6), one per trial.
+Each gallery has eight different trials from one participant, dyad, and condition. This removes participant identity,
+condition, and window offset as ways to identify a positive among its candidates. Training samples these strata
+uniformly and chooses fresh trial subsets. Validation and test galleries are saved once using signal-independent
+random selection. Both initializations use the same galleries and augmentation draws. An insufficient stratum fails
+explicitly instead of silently dropping a dyad. General multi-offset gallery masking is future work.
+
+Two independent views receive per-window amplitude scaling in [0.9, 1.1], independent Gaussian noise at 2% of each
+channel's RMS, and independent channel dropout with probability 0.05. Time samples and channel positions never move.
+Use `--amplitude`, `--noise`, and `--channel-drop` to disable individual transformations for development ablations;
+these settings are saved. Augmentation is performed in microvolts, followed by the adapter's single `/100` scaling.
+
+### Run the matched pretrained/random pilots
+
+```bash
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+  INITIALIZATION=pretrained bsub < src/hyperscanning_contrastive/hpc/circling_ssl.lsf
+
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+  INITIALIZATION=random bsub < src/hyperscanning_contrastive/hpc/circling_ssl.lsf
+```
+
+Copy the wrapper explicitly when syncing: the existing `hpc/` directory is Git-ignored. It uses the same V100 queue
+and host selector as Project 1 and creates a separate run directory keyed by initialization and job ID. Queue runtime
+is a request, not a measured completion estimate. Direct invocation inside a GPU allocation is:
+
+```bash
+PYTHONPATH=src python -m hyperscanning_contrastive ssl \
+  --cache /path/to/cache --output runs/ssl-pretrained --device cuda \
+  --initialization pretrained --epochs 20 --steps-per-epoch 100 --pairs 8
+```
+
+Unlike `overfit`, **Stage 2 trains the backbone by default**. Use `--freeze-backbone` for a projection-only control.
+Pretrained backbone LR is 1e-5, random backbone LR is 1e-4, projection LR is 1e-3; both use AdamW weight decay 0.01,
+gradient clipping at 1, temperature 0.1, and the same 2,000-update budget. Different backbone LRs are explicit pilot
+settings, not a claim of optimal or strictly hyperparameter-identical initialization comparison. Random runs never
+read or hash the pretrained checkpoint. Inputs/manifests are verified before training; arrays are memory-mapped.
+
+### Selection and interpretation
+
+`history.csv` reports training loss and fixed-gallery validation metrics. Save and compare `validation_initial.csv`
+(untrained projection), `validation_initial_pooled.csv` (raw pooled features), and `validation_best.csv`. Selection
+uses **validation MRR**, averaging members, then conditions, then dyads equally. The initial model is eligible as
+epoch 0; ties keep the earlier checkpoint. No test metric is computed during training. The fixed epoch budget has
+no test-driven early stopping. `ssl.json` records the selected epoch, baseline metrics, nominal chance, and checkpoint,
+settings, and gallery hashes. `settings.json` contains the complete pilot configuration; `splits.csv` records dyads.
+
+For eight candidates, top-one chance is 0.125 and MRR chance is approximately 0.340. Ties receive the expected metric
+under random tie-breaking, so collapse cannot exploit candidate ordering. Per-gallery embedding standard deviation
+is included as a collapse diagnostic. Strong initial retrieval may make this task too easy: high final accuracy alone
+does not establish a benefit from SSL. Compare the initial/best results and per-dyad values; a best epoch of zero is
+an informative lack of validation improvement. Same-window view matching is an engineering/representation test,
+not evidence of cross-person information. It also cannot establish physiological validity of an augmentation.
+
+### Explicit test evaluation after locking the pilot
+
+Once both configurations are fixed, evaluate each selected run with the same saved galleries:
+
+```bash
+PYTHONPATH=src python -m hyperscanning_contrastive ssl-evaluate \
+  --cache /path/to/cache --run /path/to/completed/ssl-run \
+  --output runs/ssl-pretrained-test --device cuda
+```
+
+This verifies the original cache, settings, gallery, and model hashes; evaluates initial pooled features, initial
+projection, and the validation-selected model; and writes per-gallery CSVs plus `test.json`. Use a new output
+directory. Test results must not become a signal for repeated tuning. Report dyad-level variability, not window-level
+replicates as independent evidence. Multiple seeds and uncertainty estimates remain necessary for research claims.
+
+Stage 3 partner alignment and trial-level surrogate evaluation are not implemented by these commands.

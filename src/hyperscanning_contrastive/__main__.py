@@ -11,7 +11,7 @@ from .data import CONDITIONS, prepare, resolve_source
 def main() -> None:
     """Run a metadata audit or prepare paired EEG signals from the local dataset."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("audit", "prepare", "controls", "overfit"))
+    parser.add_argument("command", choices=("audit", "prepare", "controls", "overfit", "ssl", "ssl-evaluate"))
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bad-segments", type=Path, help="Trusted local six-second artifact pickle.")
     parser.add_argument("--output", type=Path, required=True, help="New audit/cache directory.")
@@ -30,7 +30,42 @@ def main() -> None:
     parser.add_argument("--group", type=int)
     parser.add_argument("--condition", choices=CONDITIONS, default="open")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--freeze-backbone", action="store_true", help="Stage 2 projection-only control.")
+    parser.add_argument("--validation-fold", type=int, default=1)
+    parser.add_argument("--test-fold", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--steps-per-epoch", type=int, default=100)
+    parser.add_argument("--amplitude", type=float, default=0.1)
+    parser.add_argument("--noise", type=float, default=0.02)
+    parser.add_argument("--channel-drop", type=float, default=0.05)
+    parser.add_argument("--run", type=Path, help="Completed Stage 2 training directory for ssl-evaluate.")
     args = parser.parse_args()
+    if args.command in {"ssl", "ssl-evaluate"}:
+        from .ssl import SSLConfig, test_ssl, train_ssl
+
+        if args.cache is None:
+            parser.error("Stage 2 requires --cache")
+        if args.command == "ssl-evaluate":
+            if args.run is None:
+                parser.error("ssl-evaluate requires --run")
+            test_ssl(args.cache, args.run, args.output, args.device)
+        else:
+            config = SSLConfig(
+                initialization=args.initialization,
+                freeze_backbone=args.freeze_backbone,
+                validation_fold=args.validation_fold,
+                test_fold=args.test_fold,
+                pairs=args.pairs,
+                epochs=args.epochs,
+                steps_per_epoch=args.steps_per_epoch,
+                seed=args.seed,
+                amplitude=args.amplitude,
+                noise=args.noise,
+                channel_drop=args.channel_drop,
+            )
+            train_ssl(args.cache, args.output, args.checkpoint, config, args.device)
+        print(f"Completed {args.command}: {args.output}")
+        return
     if args.command == "overfit":
         from .overfit import run_overfit
 

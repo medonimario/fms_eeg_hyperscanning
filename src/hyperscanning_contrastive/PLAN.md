@@ -1,7 +1,7 @@
 **Project 2: contrastive learning for partner-EEG retrieval**
 
-Discussion draft, updated 19 October 2026. Stage 0 audit/cache tools and Stage 1 synthetic/tiny-set diagnostics are implemented; full training/CV remains
-unimplemented. Proposed training settings below are starting hypotheses, not established optimal parameters.
+Discussion draft, updated 19 October 2026. Stage 0 audit/cache tools, Stage 1 diagnostics, and the Stage 2 single-person SSL pilot are implemented.
+Partner training and full cross-validation remain unimplemented. Proposed training settings below are starting hypotheses, not established optimal parameters.
 
 Confirmed with the user: use the **local Circling dataset used for Project 1**, not the public release. Its artifact
 dictionary indexes **six-second sections** after the two-second crop and practice removal. These local conventions
@@ -512,3 +512,5 @@ new model forward pass or training run was performed. Source documents were trea
 Implementation update: synthetic-vector Stage 1 controls are available through `controls`; see README.md. These cover symmetric loss, explicit candidate masks, tie-aware ranks, tiny-set fitting, held-out shared latents, and independent-vector retrieval. Real-EEG/backbone checks and trial-permutation nulls remain outstanding.
 
 Implementation update: `overfit` now verifies and loads the paired cache, uses a shared channel-aware LaBraM with a projection head, and fits distinct development trials. Frozen/pretrained, frozen/random, and trainable-backbone modes are supported. This is a memorization diagnostic; Stage 2 and held-out partner evaluation remain unimplemented.
+
+Stage 2 implementation update: `ssl` uses same-person augmented-view positives, all three conditions, offset-zero distinct-trial galleries, validation fold 1, test fold 2, remaining folds for training. `ssl-evaluate` performs separately requested test evaluation after settings are locked. See README for pilot settings and initial-feature baselines; these commands do not perform partner retrieval or surrogate inference.
