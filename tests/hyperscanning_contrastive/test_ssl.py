@@ -216,3 +216,38 @@ def test_partner_directional_metrics() -> None:
     tied = query_metrics(torch.ones(8, 8))
     assert tied.top1.mean() == 0.125
     assert tied.mrr.mean() == pytest.approx(sum(1 / i for i in range(1, 9)) / 8)
+
+
+def test_partner_training_controls_and_selection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fit only projection weights with matched controls and select against true validation pairs."""
+    from hyperscanning_contrastive.alignment import train_alignment
+
+    cache = make_cache(tmp_path / "cache")
+    monkeypatch.setattr("hyperscanning_contrastive.alignment.ContrastiveLabram", TinyEncoder)
+    original = EEGCache.signals
+    seen = set()
+
+    def track(self: EEGCache, rows: pd.DataFrame) -> torch.Tensor:
+        """Reject any test signal extraction during partner training."""
+        seen.update(rows.split.unique())
+        assert "test" not in seen
+        return original(self, rows)
+
+    monkeypatch.setattr(EEGCache, "signals", track)
+    output = tmp_path / "alignment"
+    report = train_alignment(
+        cache, output, tmp_path / "nonexistent", initialization="random", pairs=4, epochs=2, steps_per_epoch=2
+    )
+    assert seen == {"train", "validation"}
+    assert report["checkpoint_sha256"] is None
+    assert not report["test_evaluated"]
+    mapping = pd.read_csv(output / "shuffled_training_pairs.csv")
+    assert set(mapping.group) == {0}
+    for _, frame in mapping.groupby(["group", "condition"]):
+        assert set(frame.a_trial_id) == set(frame.b_trial_id)
+    for arm in ("true", "shuffled"):
+        history = pd.read_csv(output / arm / "history.csv")
+        assert report["arms"][arm]["best_epoch"] == int(history.loc[history.mrr.idxmax(), "epoch"])
+        assert history.iloc[0].mrr == pytest.approx(report["initial_projection"]["macro"]["mrr"])
+        assert (output / arm / "best_projection.pt").exists()
+    assert (output / "backbone.pt").exists()

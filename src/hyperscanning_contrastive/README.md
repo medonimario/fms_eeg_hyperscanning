@@ -263,7 +263,7 @@ projection, and the validation-selected model; and writes per-gallery CSVs plus 
 directory. Test results must not become a signal for repeated tuning. Report dyad-level variability, not window-level
 replicates as independent evidence. Multiple seeds and uncertainty estimates remain necessary for research claims.
 
-Stage 3 partner alignment and trial-level surrogate evaluation are not implemented by these commands.
+Stage 3 partner alignment is available separately below; these Stage 2 commands do not perform it.
 
 ## Stage 2: validation correspondence control
 
@@ -343,5 +343,51 @@ unrestricted trial exchangeability may fail under slow drift/block structure, an
 for shared cues or movement. No scientific significance claim or physiological interpretation follows from this check
 alone. Multiple seeds, stronger matched controls, and a locked held-out evaluation remain later work.
 
-The next Stage 3 step is a learned shared projection and then limited encoder adaptation, compared against these
-frozen baselines. Partner training is not implemented by `partner-baseline`.
+The learned shared-projection step is available through `partner-train` below. Limited encoder adaptation remains
+future work; `partner-baseline` itself performs no training.
+
+## Stage 3: learned shared projection with shuffled-training control
+
+`partner-train` extracts original frozen LaBraM features once, then fits the same shared 200→256→128 head to both
+partners. Both experimental arms run automatically: true correspondence and a fixed shuffled-training-pair control.
+No Stage 2 checkpoint is used. No backbone weights are updated. No signal augmentation is applied.
+
+```bash
+export CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487
+INITIALIZATION=pretrained bsub < src/hyperscanning_contrastive/hpc/circling_partner_train.lsf
+INITIALIZATION=random bsub < src/hyperscanning_contrastive/hpc/circling_partner_train.lsf
+```
+
+Copy the Git-ignored wrapper explicitly when syncing. The GPU is used for bounded-batch feature extraction; both small
+heads train on CPU with detached features. The direct command is `PYTHONPATH=src python -m hyperscanning_contrastive
+partner-train --cache <cache> --output <new-run> --initialization pretrained --device cuda` (on one line).
+Random initialization never reads or hashes pretrained weights. No extra jobs are needed for shuffled-training arms.
+
+The split is fixed: validation fold 1, untouched test fold 2, remaining folds training. Use one clean offset-zero
+window per available trial, all three conditions and both partners. Training uniformly samples dyad/condition strata,
+then eight distinct A trials. True-pair positives use the same B trials. The shuffled control maps each A trial to a
+fixed randomly permuted B trial within that training dyad/condition, then selects candidates using that mapping.
+This is a bijection over the entire available stratum, not fresh noise each update. Fixed points are allowed and are
+recorded in `shuffled_training_pairs.csv`. It may learn arbitrary training correspondences; that is the intended
+control. It is not a physiological surrogate or a formal null-distribution experiment.
+
+Both arms start from identical projection weights and use identical stratum/A-trial sampling schedules. Each uses
+AdamW LR 1e-3, weight decay 0.01, temperature 0.1, gradient clipping at 1, and 20 epochs of 100 updates. Validation
+always evaluates **true** partner correspondence on the same galleries as `partner-baseline`. Compare gallery hashes
+across runs. Selection uses equal-condition, dyad-macro validation MRR, includes the untrained projection as epoch 0,
+and retains the earlier checkpoint on ties. It never selects for an interactive/non-interactive gap.
+
+Outputs:
+
+- `alignment.json`: raw pooled and untrained-projection baselines, selected results for each arm, per-condition scores,
+  settings and provenance. Test signals are never extracted or scored.
+- `true/` and `shuffled/`: `history.csv`, per-epoch validation query CSVs, `validation_best.csv`, `dyads.csv`, and
+  `best_projection.pt`.
+- `backbone.pt`, `initial_projection.pt`, `galleries.csv`, `splits.csv`, and `shuffled_training_pairs.csv` preserve the
+  frozen encoder, shared starting point, and data mappings.
+
+A useful result would be a true-pair projection improving over raw pooled features, the untrained projection, and
+the shuffled-training control on validation dyads. Similar improvements in both arms suggest generic feature
+reweighting or selection effects rather than a benefit of true correspondence. With six validation dyads, compare
+per-dyad patterns and keep results exploratory. Failure does not prove absence of shared EEG information. Limited
+backbone adaptation and locked held-out evaluation remain later steps; these training commands do neither.

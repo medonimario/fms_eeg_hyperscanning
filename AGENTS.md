@@ -50,7 +50,7 @@
 
 * Set `PYTHONPATH=src`; use `python -m hyperscanning_contrastive audit --data-dir <local-circling> --output <new-audit>` for Stage 0 metadata checks, and `python -m hyperscanning_contrastive prepare --data-dir <local-circling> --output <new-cache>` to save paired signals. Supply `--bad-segments <trusted-local-pickle>` when it is not in the dataset parent directory.
 * This uses the local Project 1 Circling dataset and its confirmed **six-second** artifact dictionary, not the public release. Exclude artifact-overlapping intervals symmetrically across each dyad. See `src/hyperscanning_contrastive/README.md` for maximal clean non-overlapping four-second windows and strict pairing checks.
-* Run targeted tests with `python -m pytest tests/hyperscanning_contrastive`. The `overfit` command is a development-only training diagnostic; Stage 2 SSL is available; partner training and full CV remain unimplemented.
+* Run targeted tests with `python -m pytest tests/hyperscanning_contrastive`. The `overfit` command is a development-only training diagnostic; Stage 2 SSL and Stage 3 projection training are available; full CV remains unimplemented.
 * The local Circling data are on the HPC at `/work3/s204684/Thesis/circling_eeg/`. Submit the CPU audit with `bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf`; use `STAGE=prepare bsub < src/hyperscanning_contrastive/hpc/circling_data.lsf` after reviewing the audit. Create `outputs/` and `errors/` before submission. Each job writes a new output directory keyed by its job ID.
 
 * Run Stage 1 synthetic CPU controls with `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive controls --output <new-directory>`. This checks loss/retrieval and synthetic fitting, not LaBraM or EEG performance.
@@ -62,3 +62,5 @@
 * Validate Stage 2 correspondence with `PYTHONPATH=src python -m hyperscanning_contrastive ssl-correspondence --cache <cache> --run <completed-run> --output <new-directory> --device cpu`. This uses validation only and uniform permutations with fixed points allowed; it is an engineering control, not a hyperscanning significance test. HPC wrapper: `hpc/circling_correspondence.lsf`.
 
 * Stage 3 frozen baseline: `PYTHONPATH=src python -m hyperscanning_contrastive partner-baseline --cache <cache> --output <new-run> --initialization pretrained --device cpu`; repeat with random. Validation fold 1 only, aligned opposite participants, matched condition/offset trial galleries, no adaptation or test scoring. See README and `hpc/circling_partner_baseline.lsf`.
+
+* Train Stage 3 frozen-feature projections with `PYTHONPATH=src python -m hyperscanning_contrastive partner-train --cache <cache> --output <new-run> --device cuda`. Each initialization runs true and fixed shuffled-training-pair arms from identical heads/sampling schedules; only projections train. Validation fold 1 selects checkpoints; test fold 2 is not scored. See `hpc/circling_partner_train.lsf` and package README.

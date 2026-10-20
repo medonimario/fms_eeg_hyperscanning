@@ -518,3 +518,5 @@ Stage 2 implementation update: `ssl` uses same-person augmented-view positives, 
 Stage 2 follow-up: `ssl-correspondence` now replays validation galleries for initial pooled/projected and selected features, with uniform random assignment controls. This addresses engineering correspondence sensitivity; harder view tasks and physiological surrogate inference remain separate future work.
 
 Stage 3 implementation update: `partner-baseline` evaluates original frozen pretrained/random pooled LaBraM on validation-fold partner retrieval, both directions, separately per condition, with aligned trial galleries and exploratory uniform correspondence shuffles. This does not yet implement learned partner alignment or confirmatory inference.
+
+Stage 3 alignment update: `partner-train` now fits shared projections on frozen original features, with matched true/fixed-shuffled training arms and condition-balanced validation MRR selection. Limited backbone adaptation, final held-out partner evaluation, and scientific surrogate inference remain future steps.

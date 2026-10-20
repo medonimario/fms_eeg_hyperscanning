@@ -22,6 +22,7 @@ def main() -> None:
             "ssl-evaluate",
             "ssl-correspondence",
             "partner-baseline",
+            "partner-train",
         ),
     )
     parser.add_argument("--data-dir", type=Path)
@@ -54,6 +55,24 @@ def main() -> None:
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--permutation-seed", type=int, default=1042)
     args = parser.parse_args()
+    if args.command == "partner-train":
+        from .alignment import train_alignment
+
+        if args.cache is None:
+            parser.error("partner-train requires --cache")
+        train_alignment(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.initialization,
+            args.device,
+            args.pairs,
+            args.epochs,
+            args.steps_per_epoch,
+            args.seed,
+            args.permutation_seed,
+        )
+        return
     if args.command == "partner-baseline":
         from .partner import partner_baseline
 
