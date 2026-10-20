@@ -275,8 +275,13 @@ def load_evaluation(cache_path: Path, run: Path, split: str) -> tuple[EEGCache, 
     """Verify completed run provenance and reconstruct a saved held-out gallery without scoring it."""
     if split not in {"validation", "test"}:
         raise ValueError("Evaluation split must be validation or test.")
-    if not (run / "ssl.json").exists():
-        raise ValueError("Training has no completion marker.")
+    run = run.expanduser().resolve()
+    if not (run / "ssl.json").is_file():
+        raise ValueError(
+            f"Missing Stage 2 completion marker: {run / 'ssl.json'}. "
+            "--run must point to the completed circling_ssl_* directory containing ssl.json, "
+            "settings.json, initial.pt and best.pt, not the cache, overfit run, or output directory."
+        )
     completed = json.loads((run / "ssl.json").read_text())
     if sha256(run / "settings.json") != completed["settings_sha256"]:
         raise ValueError("Training settings changed after completion.")

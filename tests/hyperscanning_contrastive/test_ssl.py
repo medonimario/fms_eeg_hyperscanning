@@ -157,3 +157,62 @@ def test_split_errors_and_checksum(tmp_path: Path) -> None:
         stream.write(b"changed")
     with pytest.raises(ValueError, match="checksum"):
         EEGCache(path, SSLConfig(pairs=4))
+
+
+def test_missing_run_reports_resolved_path(tmp_path: Path) -> None:
+    """Identify a misdirected run before attempting to load cache or model weights."""
+    from hyperscanning_contrastive.ssl import load_evaluation
+
+    run = tmp_path / "wrong-run"
+    with pytest.raises(ValueError, match="Missing Stage 2 completion marker") as error:
+        load_evaluation(tmp_path / "cache", run, "validation")
+    assert str(run / "ssl.json") in str(error.value)
+    assert "--run" in str(error.value)
+
+
+def test_partner_baseline_uses_aligned_members(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use matched trial rows for opposite members and never read held-out test signals."""
+    from hyperscanning_contrastive.partner import partner_baseline
+
+    path = make_cache(tmp_path / "cache")
+    array = np.load(path / "pair_1.npy")
+    array[:, 1] = array[:, 0]
+    np.save(path / "pair_1.npy", array)
+    metadata = json.loads((path / "cache.json").read_text())
+    metadata["array_sha256"]["pair_1.npy"] = sha256(path / "pair_1.npy")
+    (path / "cache.json").write_text(json.dumps(metadata))
+    monkeypatch.setattr("hyperscanning_contrastive.partner.ContrastiveLabram", TinyEncoder)
+    original = EEGCache.signals
+    reads = []
+
+    def record(self: EEGCache, rows: pd.DataFrame) -> torch.Tensor:
+        """Capture exact source rows and participant axis requested by each branch."""
+        assert set(rows.split) == {"validation"}
+        reads.append((rows.member.iloc[0], rows.array_index.tolist()))
+        return original(self, rows)
+
+    monkeypatch.setattr(EEGCache, "signals", record)
+    report = partner_baseline(
+        path, tmp_path / "partner", tmp_path / "missing", initialization="random", pairs=4, permutations=100
+    )
+    assert report["checkpoint_sha256"] is None
+    assert not report["test_evaluated"]
+    for a, b in zip(reads[::2], reads[1::2], strict=True):
+        assert a[0] == 0 and b[0] == 1 and a[1] == b[1]
+    for condition in report["conditions"].values():
+        assert condition["actual"]["top1"] == 1
+        assert condition["shuffled_mean"]["top1"] == pytest.approx(0.25, abs=0.08)
+    assert (tmp_path / "partner" / "open_minus_closed_by_dyad.csv").exists()
+    assert (tmp_path / "partner" / "similarities.npz").exists()
+
+
+def test_partner_directional_metrics() -> None:
+    """Retain asymmetric retrieval directions and assign chance credit for ties."""
+    from hyperscanning_contrastive.partner import query_metrics
+
+    rows = query_metrics(torch.tensor([[2.0, 3.0], [0.0, 1.0]]))
+    assert rows.top1.tolist() == [0, 1, 1, 0]
+    assert rows.mrr.mean() == 0.75
+    tied = query_metrics(torch.ones(8, 8))
+    assert tied.top1.mean() == 0.125
+    assert tied.mrr.mean() == pytest.approx(sum(1 / i for i in range(1, 9)) / 8)

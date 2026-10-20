@@ -12,7 +12,17 @@ def main() -> None:
     """Run a metadata audit or prepare paired EEG signals from the local dataset."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("audit", "prepare", "controls", "overfit", "ssl", "ssl-evaluate", "ssl-correspondence")
+        "command",
+        choices=(
+            "audit",
+            "prepare",
+            "controls",
+            "overfit",
+            "ssl",
+            "ssl-evaluate",
+            "ssl-correspondence",
+            "partner-baseline",
+        ),
     )
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bad-segments", type=Path, help="Trusted local six-second artifact pickle.")
@@ -44,6 +54,23 @@ def main() -> None:
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--permutation-seed", type=int, default=1042)
     args = parser.parse_args()
+    if args.command == "partner-baseline":
+        from .partner import partner_baseline
+
+        if args.cache is None:
+            parser.error("partner-baseline requires --cache")
+        partner_baseline(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.initialization,
+            args.device,
+            args.pairs,
+            args.seed,
+            args.permutations,
+            args.permutation_seed,
+        )
+        return
     if args.command == "ssl-correspondence":
         from .correspondence import check_correspondence
 

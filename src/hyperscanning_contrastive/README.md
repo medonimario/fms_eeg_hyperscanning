@@ -298,3 +298,50 @@ and chance shuffled score validate correspondence sensitivity, not benefit from 
 
 After this check, keep test data untouched while deciding whether a harder Stage 2 task (such as disjoint sensor
 views) is needed. Do not tune the learning rate solely to address a saturated ranking metric.
+
+## Stage 3: frozen partner-retrieval baseline
+
+The `partner-baseline` command queries one participant's EEG against the **other participant's EEG** from eight
+trials of the same condition, with simultaneous trial as the positive. It evaluates both directions on validation
+fold 1 only, using source seconds 2–6 (crop offset zero). It uses original frozen pooled LaBraM features and cosine
+similarity, without augmentation, projection, SSL adaptation, or training. Test fold 2 remains unscored.
+
+```bash
+export CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487
+INITIALIZATION=pretrained bsub < src/hyperscanning_contrastive/hpc/circling_partner_baseline.lsf
+INITIALIZATION=random bsub < src/hyperscanning_contrastive/hpc/circling_partner_baseline.lsf
+```
+
+Copy the Git-ignored HPC wrapper explicitly. This is a CPU job and requires no Stage 2 run path. Direct invocation:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-baseline \
+  --cache /path/to/cache --output runs/partner-pretrained --initialization pretrained --device cpu
+```
+
+The baseline fixes validation/test folds to 1/2. `--pairs`, `--seed`, `--permutations`, and `--permutation-seed` configure
+candidate count and reproducibility; use identical values across initializations. Random initialization never reads
+or hashes a pretrained checkpoint. The original pretrained model is loaded independently of Stage 2 selection.
+
+Gallery selection reuses the Stage 2 member-0 validation subsets, then reads **both members at those exact trial
+rows**. It does not independently sample the partner's trials. All participants/conditions in validation are included;
+the cache checks its input contract and hashes. `galleries.csv` must have the same SHA256 across initialization runs.
+There is no pooled gallery spanning different target identities or conditions.
+
+`partner.json` contains true and shuffled metrics separately for `closed1`, `open`, and `closed2`, with equal dyad
+weighting. It records sample SD across dyads separately from Monte Carlo uncertainty of the shuffled mean.
+`directions.csv` retains A→B and B→A; `queries.csv` retains individual query ranks; `dyads.csv` averages directions.
+`similarities.npz` holds the actual score matrices in the saved gallery order. `shuffled_dyads.csv` records all
+randomization repeats. `open_minus_closed_by_dyad.csv` records within-dyad open minus mean(closed1, closed2), and the
+report summarizes those paired differences. This contrast is descriptive and does not replace inspecting both closed
+conditions separately.
+
+Uniform permutations reassign whole trial correspondence within each dyad/condition gallery, consistently in both
+directions; fixed points remain allowed. The same assignments are replayed across initializations. With eight
+candidates, top-one chance is 0.125 and MRR chance is 0.339732. These are exploratory correspondence controls:
+unrestricted trial exchangeability may fail under slow drift/block structure, and this first baseline does not adjust
+for shared cues or movement. No scientific significance claim or physiological interpretation follows from this check
+alone. Multiple seeds, stronger matched controls, and a locked held-out evaluation remain later work.
+
+The next Stage 3 step is a learned shared projection and then limited encoder adaptation, compared against these
+frozen baselines. Partner training is not implemented by `partner-baseline`.
