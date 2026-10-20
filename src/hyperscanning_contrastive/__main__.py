@@ -11,7 +11,9 @@ from .data import CONDITIONS, prepare, resolve_source
 def main() -> None:
     """Run a metadata audit or prepare paired EEG signals from the local dataset."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("audit", "prepare", "controls", "overfit", "ssl", "ssl-evaluate"))
+    parser.add_argument(
+        "command", choices=("audit", "prepare", "controls", "overfit", "ssl", "ssl-evaluate", "ssl-correspondence")
+    )
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bad-segments", type=Path, help="Trusted local six-second artifact pickle.")
     parser.add_argument("--output", type=Path, required=True, help="New audit/cache directory.")
@@ -39,7 +41,16 @@ def main() -> None:
     parser.add_argument("--noise", type=float, default=0.02)
     parser.add_argument("--channel-drop", type=float, default=0.05)
     parser.add_argument("--run", type=Path, help="Completed Stage 2 training directory for ssl-evaluate.")
+    parser.add_argument("--permutations", type=int, default=200)
+    parser.add_argument("--permutation-seed", type=int, default=1042)
     args = parser.parse_args()
+    if args.command == "ssl-correspondence":
+        from .correspondence import check_correspondence
+
+        if args.cache is None or args.run is None:
+            parser.error("ssl-correspondence requires --cache and --run")
+        check_correspondence(args.cache, args.run, args.output, args.device, args.permutations, args.permutation_seed)
+        return
     if args.command in {"ssl", "ssl-evaluate"}:
         from .ssl import SSLConfig, test_ssl, train_ssl
 

@@ -271,8 +271,10 @@ def train_ssl(cache_path: Path, output: Path, checkpoint: Path, config: SSLConfi
     return report
 
 
-def test_ssl(cache_path: Path, run: Path, output: Path, device: str = "cpu") -> dict:
-    """Evaluate locked initial/best checkpoints on saved test galleries in a separate explicit step."""
+def load_evaluation(cache_path: Path, run: Path, split: str) -> tuple[EEGCache, SSLConfig, list[pd.DataFrame]]:
+    """Verify completed run provenance and reconstruct a saved held-out gallery without scoring it."""
+    if split not in {"validation", "test"}:
+        raise ValueError("Evaluation split must be validation or test.")
     if not (run / "ssl.json").exists():
         raise ValueError("Training has no completion marker.")
     completed = json.loads((run / "ssl.json").read_text())
@@ -281,19 +283,25 @@ def test_ssl(cache_path: Path, run: Path, output: Path, device: str = "cpu") -> 
     for name, digest in completed["checkpoint_sha256"].items():
         if name not in {"initial", "best"} or sha256(run / f"{name}.pt") != digest:
             raise ValueError("Model checksum mismatch.")
-    if sha256(run / "test_galleries.csv") != completed["gallery_sha256"]["test"]:
-        raise ValueError("Test galleries changed after training.")
+    if sha256(run / f"{split}_galleries.csv") != completed["gallery_sha256"][split]:
+        raise ValueError("Saved galleries changed after training.")
     settings = json.loads((run / "settings.json").read_text())
     if sha256(cache_path / "cache.json") != settings["cache_sha256"]:
         raise ValueError("Evaluation cache differs from training cache.")
     config = SSLConfig(**settings["config"])
     cache = EEGCache(cache_path, config)
-    galleries = cache.galleries("test", config)
-    saved = pd.read_csv(run / "test_galleries.csv")
+    galleries = cache.galleries(split, config)
+    saved = pd.read_csv(run / f"{split}_galleries.csv")
     keys = ["group", "condition", "trial_id", "array", "array_index", "member", "crop_start_s", "split"]
     pd.testing.assert_frame_equal(
         saved[keys].reset_index(drop=True), pd.concat(galleries)[keys].reset_index(drop=True), check_dtype=False
     )
+    return cache, config, galleries
+
+
+def test_ssl(cache_path: Path, run: Path, output: Path, device: str = "cpu") -> dict:
+    """Evaluate locked initial/best checkpoints on saved test galleries in a separate explicit step."""
+    cache, config, galleries = load_evaluation(cache_path, run, "test")
     output.mkdir(parents=True, exist_ok=False)
     model = ContrastiveLabram("random", Path("unused"), False).to(device)
     result = {}

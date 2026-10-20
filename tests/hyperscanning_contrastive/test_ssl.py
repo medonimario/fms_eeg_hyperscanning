@@ -132,6 +132,14 @@ def test_training_and_locked_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     history = pd.read_csv(run / "history.csv")
     assert report["best_epoch"] == int(history.loc[history.mrr.idxmax(), "epoch"])
     assert json.loads((run / "settings.json").read_text())["checkpoint_sha256"] is None
+    from hyperscanning_contrastive.correspondence import check_correspondence
+
+    monkeypatch.setattr("hyperscanning_contrastive.correspondence.ContrastiveLabram", TinyEncoder)
+    control = check_correspondence(cache_path, run, tmp_path / "correspondence", permutations=20)
+    assert seen == {"train", "validation"}
+    assert not control["test_evaluated"]
+    initial_csv = pd.read_csv(run / "validation_initial.csv")
+    assert control["representations"]["initial"]["actual"]["top1"] == pytest.approx(initial_csv.top1.mean())
     results = evaluate_run(cache_path, run, tmp_path / "test")
     assert "test" in seen
     assert set(results) == {"initial", "best", "initial_pooled", "scope"}

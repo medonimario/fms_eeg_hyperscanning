@@ -514,3 +514,5 @@ Implementation update: synthetic-vector Stage 1 controls are available through `
 Implementation update: `overfit` now verifies and loads the paired cache, uses a shared channel-aware LaBraM with a projection head, and fits distinct development trials. Frozen/pretrained, frozen/random, and trainable-backbone modes are supported. This is a memorization diagnostic; Stage 2 and held-out partner evaluation remain unimplemented.
 
 Stage 2 implementation update: `ssl` uses same-person augmented-view positives, all three conditions, offset-zero distinct-trial galleries, validation fold 1, test fold 2, remaining folds for training. `ssl-evaluate` performs separately requested test evaluation after settings are locked. See README for pilot settings and initial-feature baselines; these commands do not perform partner retrieval or surrogate inference.
+
+Stage 2 follow-up: `ssl-correspondence` now replays validation galleries for initial pooled/projected and selected features, with uniform random assignment controls. This addresses engineering correspondence sensitivity; harder view tasks and physiological surrogate inference remain separate future work.

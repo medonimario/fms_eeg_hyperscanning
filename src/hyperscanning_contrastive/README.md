@@ -264,3 +264,37 @@ directory. Test results must not become a signal for repeated tuning. Report dya
 replicates as independent evidence. Multiple seeds and uncertainty estimates remain necessary for research claims.
 
 Stage 3 partner alignment and trial-level surrogate evaluation are not implemented by these commands.
+
+## Stage 2: validation correspondence control
+
+When same-window retrieval saturates even before training, use this engineering check before increasing task
+complexity. It requires no retraining and never scores test signals:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive ssl-correspondence \
+  --cache /path/to/cache --run /path/to/completed/ssl-run \
+  --output runs/ssl-validation-correspondence --permutations 200 --device cpu
+```
+
+Run it once for each pretrained/random run. On HPC, set `CACHE` and `RUN` and submit
+`bsub < src/hyperscanning_contrastive/hpc/circling_correspondence.lsf`. Copy this Git-ignored wrapper explicitly.
+
+The command verifies saved settings, checkpoints, cache, and validation gallery hashes. It evaluates initial pooled
+features, the initial projection, and the selected checkpoint using the same augmentation seed as validation. The
+selected checkpoint can be epoch zero, especially when the initial model already has perfect validation MRR.
+Embeddings are computed once per gallery/representation; permutations reuse them on CPU.
+
+Each uniform permutation reassigns the second view to designated diagonal positives within the same participant,
+condition, and offset gallery, consistently in both retrieval directions. Fixed points are allowed: forcing all
+matches to be wrong would change the expected chance score. The same random permutations are replayed across
+representations and runs when galleries match. The expected shuffled means for eight candidates are top-one 0.125
+and MRR 0.339732. Finite-repeat estimates fluctuate around these values; no exact equality gate is imposed.
+
+`correspondence.json` reports real scores, shuffled means, between-repeat SD, and Monte Carlo SE of the shuffled
+means. These SEs describe simulation precision, not uncertainty across people. Per-gallery and per-repeat macro
+CSVs preserve equal member/condition/dyad weighting. This is a label-assignment engineering control, not a
+physiological surrogate or a hypothesis test of hyperscanning; no scientific p-value is produced. A high real score
+and chance shuffled score validate correspondence sensitivity, not benefit from SSL or pretraining.
+
+After this check, keep test data untouched while deciding whether a harder Stage 2 task (such as disjoint sensor
+views) is needed. Do not tune the learning rate solely to address a saturated ranking metric.
