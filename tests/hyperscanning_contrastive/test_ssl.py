@@ -250,4 +250,30 @@ def test_partner_training_controls_and_selection(tmp_path: Path, monkeypatch: py
         assert report["arms"][arm]["best_epoch"] == int(history.loc[history.mrr.idxmax(), "epoch"])
         assert history.iloc[0].mrr == pytest.approx(report["initial_projection"]["macro"]["mrr"])
         assert (output / arm / "best_projection.pt").exists()
+        assert {
+            "train_true_mrr",
+            "train_objective_loss",
+            "validation_effective_rank",
+            "gradient_norm_mean",
+            "relative_update_mean",
+        } <= set(history.columns)
+        assert history.iloc[1:].gradient_norm_mean.gt(0).all()
+        assert history.iloc[1:].relative_update_mean.gt(0).all()
+        assert (output / arm / "diagnostic_galleries.csv").exists()
     assert (output / "backbone.pt").exists()
+
+
+def test_alignment_geometry_and_assignment() -> None:
+    """Distinguish collapse from spread and evaluate fixed shuffled positives as assigned."""
+    from hyperscanning_contrastive.alignment_diagnostics import embedding_geometry, fixed_diagnostics
+
+    assert embedding_geometry(torch.ones(8, 4))["effective_rank"] == 0
+    assert embedding_geometry(torch.eye(8))["effective_rank"] == pytest.approx(7, abs=1e-5)
+    frame = pd.DataFrame({"group": [0] * 4, "condition": ["open"] * 4, "trial_id": list("abcd")})
+    bank = {(0, "open"): {"rows": frame, "a": torch.eye(4), "b": torch.eye(4)}}
+    true = fixed_diagnostics(nn.Identity(), bank, [frame])
+    wrong = fixed_diagnostics(nn.Identity(), bank, [frame], {(0, "open"): np.array([1, 2, 3, 0])})
+    assert true.iloc[0].top1 == 1
+    assert true.iloc[0].cosine_margin == 1
+    assert wrong.iloc[0].top1 == 0
+    assert wrong.iloc[0].cosine_margin < 0

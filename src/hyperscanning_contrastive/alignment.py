@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 from torch import nn
 
+from .alignment_diagnostics import record_diagnostics
 from .contrastive import contrastive_loss, pair_scores
 from .data import sha256
 from .overfit import ContrastiveLabram
@@ -99,6 +100,8 @@ def train_alignment(
     output.mkdir(parents=True, exist_ok=False)
     galleries = [frame for frame in cache.galleries("validation", config) if int(frame.member.iloc[0]) == 0]
     pd.concat(galleries).to_csv(output / "galleries.csv", index=False)
+    training_galleries = [frame for frame in cache.galleries("train", config) if int(frame.member.iloc[0]) == 0]
+    pd.concat(training_galleries).to_csv(output / "training_galleries.csv", index=False)
     cache.rows[["group", "fold", "split"]].drop_duplicates().to_csv(output / "splits.csv", index=False)
     torch.manual_seed(seed)
     model = ContrastiveLabram(initialization, checkpoint, False).to(device).eval()
@@ -133,6 +136,8 @@ def train_alignment(
         "validation_fold": 1,
         "test_fold": 2,
         "test_evaluated": False,
+        "diagnostics_version": 1,
+        "training_gallery_sha256": sha256(output / "training_galleries.csv"),
         "pairs": pairs,
         "epochs": epochs,
         "steps_per_epoch": steps_per_epoch,
@@ -157,11 +162,13 @@ def train_alignment(
         rng = np.random.default_rng(seed + 4000)
         best, best_epoch = report["initial_projection"]["macro"]["mrr"], 0
         history = [{"epoch": 0, "train_loss": None, **report["initial_projection"]["macro"]}]
+        diagnostic_mapping = mappings if arm == "shuffled" else None
+        history[0].update(record_diagnostics(head, bank, training_galleries, galleries, diagnostic_mapping, 0, folder))
         best_rows = initial.copy()
         torch.save(head.state_dict(), folder / "best_projection.pt")
         for epoch in range(1, epochs + 1):
             head.train()
-            losses = []
+            losses, gradient_norms, update_norms, relative_updates = [], [], [], []
             for _ in range(steps_per_epoch):
                 key = keys[int(rng.integers(len(keys)))]
                 entry = bank[key]
@@ -173,12 +180,26 @@ def train_alignment(
                     raise ValueError("Nonfinite alignment loss.")
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(head.parameters(), 1.0, error_if_nonfinite=True)
+                gradient_norm = nn.utils.clip_grad_norm_(head.parameters(), 1.0, error_if_nonfinite=True)
+                before = torch.nn.utils.parameters_to_vector(head.parameters()).detach().clone()
                 optimizer.step()
+                after = torch.nn.utils.parameters_to_vector(head.parameters()).detach()
+                update = (after - before).norm().item()
+                gradient_norms.append(float(gradient_norm))
+                update_norms.append(update)
+                relative_updates.append(update / max(before.norm().item(), 1e-12))
                 losses.append(loss.item())
             validation = evaluate_projection(head, bank, galleries)
             metrics = aggregate_queries(validation)["macro"]
             history.append({"epoch": epoch, "train_loss": float(np.mean(losses)), **metrics})
+            history[-1].update(
+                record_diagnostics(head, bank, training_galleries, galleries, diagnostic_mapping, epoch, folder)
+            )
+            history[-1].update(
+                gradient_norm_mean=float(np.mean(gradient_norms)),
+                update_norm_mean=float(np.mean(update_norms)),
+                relative_update_mean=float(np.mean(relative_updates)),
+            )
             pd.DataFrame(history).to_csv(folder / "history.csv", index=False)
             validation.to_csv(folder / f"validation_epoch_{epoch:03d}.csv", index=False)
             if metrics["mrr"] > best:

@@ -391,3 +391,31 @@ the shuffled-training control on validation dyads. Similar improvements in both 
 reweighting or selection effects rather than a benefit of true correspondence. With six validation dyads, compare
 per-dyad patterns and keep results exploratory. Failure does not prove absence of shared EEG information. Limited
 backbone adaptation and locked held-out evaluation remain later steps; these training commands do neither.
+
+### Alignment learning diagnostics
+
+`partner-train` now records diagnostics automatically; use the same command/HPC wrapper in a new output directory.
+Existing runs cannot provide historical optimizer updates retrospectively, so rerun to collect these measurements.
+The learning rate, batch schedule, arm mapping, and validation-MRR checkpoint rule remain unchanged.
+
+Each arm's `history.csv` adds fixed-gallery `train_true_*`, `train_objective_*`, and `validation_*` metrics. Training
+truth always uses synchronous partners; the objective evaluation uses the arm's actual training mapping (fixed
+shuffled pairs in the control). Fixed training galleries are saved in `training_galleries.csv` and never change
+between epochs or arms. These are training-set diagnostics, not extra independent validation data.
+
+For each gallery the diagnostics report cosine positive/negative means and their margin, loss, retrieval metrics,
+mean embedding norm, normalized coordinate standard deviation, and effective rank. Geometry is computed within
+each participant and averaged, so a difference between participants cannot alone make a collapsed representation
+appear diverse. Effective rank uses entropy of singular values of centered L2-normalized embeddings; its maximum
+is min(K−1, feature dimension), hence seven for eight candidates. Exactly constant embeddings return zero. Rank
+alone can hide tiny variation, so interpret it together with normalized spread and cosine margins.
+
+`gradient_norm_mean` is the epoch mean of pre-clipping gradient norms. `update_norm_mean` is the mean actual
+parameter-step L2 norm, including AdamW effects; `relative_update_mean` divides each update by the pre-step parameter
+norm. `diagnostic_galleries.csv` retains per-dyad/condition measurements each epoch. `diagnostics_version: 1` in
+`alignment.json` identifies instrumented runs. Test signals remain unused.
+
+Interpretation: improving fixed training scores with flat validation suggests poor transfer/overfitting; both flat
+with tiny margins suggests ineffective discrimination; collapsing normalized spread/rank suggests collapse; tiny
+or absent optimizer updates suggests an optimization problem. None of these observations alone proves absence of
+shared EEG information. Inspect both the true and shuffled arms before selecting the next intervention.

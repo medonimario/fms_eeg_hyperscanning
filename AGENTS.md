@@ -64,3 +64,5 @@
 * Stage 3 frozen baseline: `PYTHONPATH=src python -m hyperscanning_contrastive partner-baseline --cache <cache> --output <new-run> --initialization pretrained --device cpu`; repeat with random. Validation fold 1 only, aligned opposite participants, matched condition/offset trial galleries, no adaptation or test scoring. See README and `hpc/circling_partner_baseline.lsf`.
 
 * Train Stage 3 frozen-feature projections with `PYTHONPATH=src python -m hyperscanning_contrastive partner-train --cache <cache> --output <new-run> --device cuda`. Each initialization runs true and fixed shuffled-training-pair arms from identical heads/sampling schedules; only projections train. Validation fold 1 selects checkpoints; test fold 2 is not scored. See `hpc/circling_partner_train.lsf` and package README.
+
+* Stage 3 `partner-train` now logs fixed train/validation retrieval, cosine margins, normalized embedding spread/effective rank, and gradient/update norms by default. Collect these with the existing wrapper in a new run; inspect both `true/history.csv` and `shuffled/history.csv` before changing optimization settings.
