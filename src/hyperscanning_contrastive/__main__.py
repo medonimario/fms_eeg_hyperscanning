@@ -24,6 +24,7 @@ def main() -> None:
             "partner-baseline",
             "partner-train",
             "partner-adapt",
+            "partner-spectral",
         ),
     )
     parser.add_argument("--data-dir", type=Path)
@@ -52,7 +53,9 @@ def main() -> None:
     parser.add_argument("--amplitude", type=float, default=0.1)
     parser.add_argument("--noise", type=float, default=0.02)
     parser.add_argument("--channel-drop", type=float, default=0.05)
-    parser.add_argument("--run", type=Path, help="Completed Stage 2 training directory for ssl-evaluate.")
+    parser.add_argument(
+        "--run", type=Path, help="Completed run to evaluate, or within-dyad reference for partner-spectral."
+    )
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--permutation-seed", type=int, default=1042)
     parser.add_argument("--projection-profile", choices=("legacy-mlp", "centered-linear"), default="legacy-mlp")
@@ -62,6 +65,15 @@ def main() -> None:
     parser.add_argument("--validation-trials", type=int, default=8, help="Whole trials held out per dyad/condition.")
     parser.add_argument("--split-seed", type=int, default=2042, help="Within-dyad trial assignment seed.")
     args = parser.parse_args()
+    if args.command == "partner-spectral":
+        from .spectral import train_spectral
+
+        if args.cache is None or args.run is None:
+            parser.error("partner-spectral requires --cache and --run (completed within-dyad adaptation)")
+        if args.device != "cpu":
+            parser.error("partner-spectral runs on CPU")
+        train_spectral(args.cache, args.output, args.run)
+        return
     if args.command == "partner-adapt":
         from .adaptation import train_adaptation
 

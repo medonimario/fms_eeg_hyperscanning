@@ -542,3 +542,19 @@ relationships from the harder transfer to unseen people. It reduces the number o
 expands validation to 41 familiar dyads; it is not a matched-sample-size estimate of a pure dyad effect.
 Success must exceed the matched shuffled-training control on held-out trials and later withstand
 blocked temporal validation. Preserve whole-trial assignments if additional windows are introduced.
+
+Stage 3 spectral comparator: `partner-spectral` now compares direct standardized log-band-power cosine
+retrieval and a small shared linear contrastive projection, on exactly the saved within-dyad LaBraM
+trial split and galleries. Both true and shuffled arms use the reference schedule. This checks whether
+a simpler representation/capacity exposes transferable correspondence in the current first four-second
+windows. It cannot establish absence of coupling if unsuccessful, nor isolate representation from head
+capacity when compared with the LaBraM MLP.
+
+Next proposed LaBraM experiments (not implemented here): first expand training to other clean,
+non-overlapping windows belonging only to the existing training trials. Keep the current validation
+gallery fixed for the primary comparison; later-time validation galleries are a separate prespecified
+analysis. Match negative candidates by condition and window offset, with distinct trials, and balance
+sampling by trial. More windows do not create more independent trials. Then test reduced trainable
+capacity under the same within-dyad split if overfitting persists. Larger optimizer batches can average
+multiple matched dyad/condition galleries, but should not introduce cross-dyad identity shortcuts.
+Ordinary gradient accumulation does not increase the number of negatives in each contrastive loss.

@@ -566,3 +566,50 @@ PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-ada
     --unfreeze-blocks 2 --backbone-lr 1e-5 --seed 42 --permutation-seed 1042 \
     --validation-protocol within-dyad --validation-trials 8 --split-seed 2042
 ```
+
+### Spectral comparator on the same within-dyad experiment
+
+`partner-spectral` reads a completed within-dyad adaptation run and reconstructs its exact trial split,
+validation galleries, training diagnostic galleries, and shuffled training assignments. It checks their
+SHA256 hashes before fitting, and requires the same prepared cache. It never reads model checkpoints.
+The reference run supplies the seeds, gallery size, and training schedule; CLI training overrides are
+not used by this comparator. Keep its manifests alongside `adaptation.json`.
+
+Features reuse Project 1's fixed spectral extractor without changing it: per-channel log10 absolute
+power in delta (1–4), theta (4–8), alpha (8–13), beta (13–30), and low gamma (30–45 Hz). Welch spectra
+use two-second periodic Hann windows, one-second overlap, and constant detrending at 200 Hz. Band
+power uses trapezoidal integration including band endpoints and a 1e-12 power floor, in microvolts
+squared. The original four-second input yields 320 features; no LaBraM scaling by 100 is applied.
+
+One global feature mean/SD is fitted on training windows from both participants only, then reused
+unchanged. The direct baseline retrieves with cosine similarity of these standardized features.
+The learned comparator adds a shared bias-free 320→64 linear map (20,480 parameters) followed by
+cosine-based symmetric contrastive loss. True and fixed-shuffled arms have identical initial weights
+and sampling schedules, AdamW LR 1e-3, weight decay .01, temperature .1, and gradient clipping at 1.
+Validation MRR selects checkpoints, including epoch zero. All extraction and fitting run on CPU.
+The six external-validation and five test dyads are not used for feature extraction or fitting.
+
+After syncing code and copying the ignored HPC wrapper, submit from the repository root:
+
+```bash
+mkdir -p outputs errors
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+REFERENCE_RUN="$PWD/runs/circling_within_dyad_pretrained_29771026" \
+    bsub < src/hyperscanning_contrastive/hpc/circling_partner_spectral.lsf
+```
+
+Or run directly in the environment, without a GPU:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-spectral \
+    --cache /work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+    --run runs/circling_within_dyad_pretrained_29771026 \
+    --output runs/circling_spectral_manual
+PYTHONPATH=src python -m hyperscanning_contrastive.plotting \
+    --run runs/circling_spectral_manual --output runs/circling_spectral_manual/plots
+```
+
+Read `spectral.json` (`direct`, `initial_projection`, and both `arms`), the two histories, and `plots/`.
+The retrieval plots include the direct spectral baseline. This is a lower-capacity representation
+comparator, not a pure feature-only ablation of the original MLP. It does not measure interbrain phase
+synchrony or time-resolved coupling. Results remain exploratory validation results.

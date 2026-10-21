@@ -24,9 +24,11 @@ def plot_run(run: Path, output: Path) -> list[Path]:
     Supports adaptation.json and alignment.json, including a renamed shuffled history.
     All training diagnostics are the recorded fixed-gallery estimates, not all training batches.
     """
-    reports = [path for path in (run / "adaptation.json", run / "alignment.json") if path.exists()]
+    reports = [
+        path for path in (run / "adaptation.json", run / "alignment.json", run / "spectral.json") if path.exists()
+    ]
     if len(reports) != 1:
-        raise ValueError("Expected exactly one adaptation.json or alignment.json report.")
+        raise ValueError("Expected exactly one adaptation.json, alignment.json, or spectral.json report.")
     report = json.loads(reports[0].read_text())
     histories, sources = {}, [reports[0]]
     for arm in COLORS:
@@ -78,6 +80,10 @@ def plot_run(run: Path, output: Path) -> list[Path]:
     fig.suptitle(title, fontsize=17)
     panel(axes[0, 0], "mrr", "Validation: real partner correspondence", "MRR (higher is better)", chance)
     panel(axes[0, 1], "top1", "Validation: first-ranked partner", "Top-1 accuracy", report["chance_top1"])
+    if "direct" in report:
+        for column, ax in (("mrr", axes[0, 0]), ("top1", axes[0, 1])):
+            ax.axhline(report["direct"]["macro"][column], color="#009E73", ls=":", label="Direct spectral features")
+            ax.legend(fontsize=8, loc="best")
     for column, ax in (("mrr", axes[0, 0]), ("top1", axes[0, 1])):
         for arm, frame in histories.items():
             epoch = report["arms"][arm]["best_epoch"]
