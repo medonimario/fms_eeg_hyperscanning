@@ -522,3 +522,13 @@ Stage 3 implementation update: `partner-baseline` evaluates original frozen pret
 Stage 3 alignment update: `partner-train` now fits shared projections on frozen original features, with matched true/fixed-shuffled training arms and condition-balanced validation MRR selection. Limited backbone adaptation, final held-out partner evaluation, and scientific surrogate inference remain future steps.
 
 Geometry diagnostic follow-up: `partner-train --projection-profile centered-linear` tests training-only global feature centering plus a bias-free linear head. A separate centered-pooled baseline measures centering without training. The legacy MLP is preserved, and all split/gallery/optimizer-selection rules remain fixed. This is an ablation motivated by nearly parallel projected embeddings, not a claim of complete collapse or a guaranteed remedy.
+
+Stage 3 limited-adaptation update: `partner-adapt` now trains the last two original LaBraM blocks and
+pooling normalization with the original shared MLP. This follows the frozen and centered-linear probes:
+the centered pooled validation MRR was 0.3614; true-pair centered-linear training reached 0.3629 versus
+0.3678 for shuffled training. Those selected exploratory scores give no clear true-pair advantage.
+The next hypothesis is that frozen pooled features require task-specific encoder adaptation. Compare
+against the original frozen MLP, retaining identical galleries, trial mappings, batch schedules, and
+validation-only selection. The initial pilot uses encoder LR 1e-5, head LR 1e-3, constant schedule, and
+20 × 100 updates per arm; it is not yet the broader warm-up/patience search proposed above.
+Full held-out evaluation, multi-seed confirmation, and scientific surrogate inference remain future work.

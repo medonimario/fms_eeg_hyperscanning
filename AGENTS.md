@@ -68,3 +68,5 @@
 * Stage 3 `partner-train` now logs fixed train/validation retrieval, cosine margins, normalized embedding spread/effective rank, and gradient/update norms by default. Collect these with the existing wrapper in a new run; inspect both `true/history.csv` and `shuffled/history.csv` before changing optimization settings.
 
 * For the Stage 3 geometry ablation, pass `--projection-profile centered-linear` or set `PROJECTION_PROFILE=centered-linear` for the partner-training wrapper. Fit the global feature mean on training windows only; save and reuse it for all splits. The default `legacy-mlp` remains unchanged. Compare raw pooled, centered pooled, initial head, and true/shuffled selected heads.
+
+* Limited Stage 3 adaptation: `PYTHONPATH=src python -m hyperscanning_contrastive partner-adapt --cache <cache> --output <new-run> --device cuda` trains the final two LaBraM blocks, pooling normalization, and original MLP. Defaults use encoder LR `1e-5`, head LR `1e-3`, matched true/shuffled arms, validation fold 1, and untouched test fold 2. See README and `hpc/circling_partner_adapt.lsf`; copy ignored HPC scripts explicitly when deploying via Git.

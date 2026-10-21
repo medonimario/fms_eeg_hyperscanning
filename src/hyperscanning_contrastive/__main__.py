@@ -23,6 +23,7 @@ def main() -> None:
             "ssl-correspondence",
             "partner-baseline",
             "partner-train",
+            "partner-adapt",
         ),
     )
     parser.add_argument("--data-dir", type=Path)
@@ -55,7 +56,33 @@ def main() -> None:
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--permutation-seed", type=int, default=1042)
     parser.add_argument("--projection-profile", choices=("legacy-mlp", "centered-linear"), default="legacy-mlp")
+    parser.add_argument("--unfreeze-blocks", type=int, default=2, help="Final transformer blocks for partner-adapt.")
+    parser.add_argument("--backbone-lr", type=float, default=1e-5, help="Encoder learning rate for partner-adapt.")
     args = parser.parse_args()
+    if args.command == "partner-adapt":
+        from .adaptation import train_adaptation
+
+        if args.cache is None:
+            parser.error("partner-adapt requires --cache")
+        if args.projection_profile != "legacy-mlp":
+            parser.error("partner-adapt uses the original legacy-mlp projection")
+        if args.validation_fold != 1 or args.test_fold != 2:
+            parser.error("partner-adapt currently fixes validation fold 1 and test fold 2")
+        train_adaptation(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.initialization,
+            args.device,
+            args.pairs,
+            args.epochs,
+            args.steps_per_epoch,
+            args.seed,
+            args.permutation_seed,
+            args.unfreeze_blocks,
+            args.backbone_lr,
+        )
+        return
     if args.command == "partner-train":
         from .alignment import train_alignment
 

@@ -451,3 +451,51 @@ centering effect. LR, temperature, epoch budget, true/shuffled mapping, gallerie
 selection remain unchanged. Test dyads remain untouched. Compare normalized spread and cosine margins as well as
 training/validation MRR, and require a true-pair benefit over the shuffled-training control before interpreting an
 improvement as useful correspondence learning.
+
+### Stage 3: limited backbone adaptation
+
+`partner-adapt` tests whether updating the representation helps when the frozen shared head does not
+consistently outperform shuffled training. It starts from the original pretrained checkpoint and original
+shared MLP, without centering or Stage 2 SSL weights. Defaults train the last **two transformer blocks**,
+final pooling normalization, and projection. Encoder LR is `1e-5`; projection LR remains `1e-3`.
+AdamW weight decay `0.01`, temperature `0.1`, 20 epochs × 100 steps, eight pairs, seeds, validation galleries,
+and fixed within-dyad/condition shuffled mappings match the frozen experiment. Both arms run in one job,
+starting from identical full model weights with the same minibatch sampling schedule.
+
+This is a limited pilot, with constant learning rates and no warm-up, rather than the larger schedule
+search in the plan. Evaluation mode disables stochastic layers during fitting but gradients remain enabled.
+No augmentations are applied. Both encoder and projection train on the requested device.
+Validation fold 1 selects each arm's checkpoint by macro MRR (including epoch zero); fold 2 is not evaluated.
+For a clean comparison, use the earlier **legacy-mlp** frozen run, since centered-linear changes the head too.
+
+From the HPC repository root, after synchronizing the new code and wrapper:
+
+```bash
+mkdir -p outputs errors
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+    bsub < src/hyperscanning_contrastive/hpc/circling_partner_adapt.lsf
+```
+
+The `hpc/` directory is ignored by Git in this repository; copy the wrapper explicitly if deploying via Git.
+The job writes `runs/circling_adaptation_pretrained_<job-id>/`. Alternatively, inside a GPU allocation:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-adapt \
+    --cache /work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+    --output runs/circling_adaptation_pretrained_manual --device cuda \
+    --initialization pretrained --unfreeze-blocks 2 --backbone-lr 1e-5 \
+    --pairs 8 --epochs 20 --steps-per-epoch 100 --seed 42 --permutation-seed 1042
+```
+
+Inspect `adaptation.json`, both `history.csv` files, and both `dyads.csv` files. Full initial/best/last
+checkpoints are saved. Epoch histories include true and assigned-objective training retrieval, validation
+retrieval, embedding geometry, and gradient norms. Training diagnostics use the first four training dyads
+(sorted IDs, all conditions) to bound repeated EEG inference; these diagnostic means are **not** directly
+comparable to the previous all-training-dyad means. Validation uses all the same fixed galleries.
+The report records diagnostic dyad IDs, all trainable parameter names, and provenance hashes.
+
+A useful outcome requires a true-pair validation advantage over both frozen training and the matched
+shuffled arm, with per-dyad/condition inspection. Training improvements alone show fitting, not transfer.
+A single selected validation peak is exploratory; repeated-seed validation is needed before claiming a
+reproducible advantage. Weak results here still leave temporal pooling, signal alignment, and simpler
+spectral/behavioral comparators as alternatives; they do not establish absence of shared EEG information.
