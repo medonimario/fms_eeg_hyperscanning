@@ -499,3 +499,70 @@ shuffled arm, with per-dyad/condition inspection. Training improvements alone sh
 A single selected validation peak is exploratory; repeated-seed validation is needed before claiming a
 reproducible advantage. Weak results here still leave temporal pooling, signal alignment, and simpler
 spectral/behavioral comparators as alternatives; they do not establish absence of shared EEG information.
+
+### Plot partner-training results
+
+Generate simple unsmoothed line plots from a completed `partner-train` or `partner-adapt` run:
+
+```bash
+PYTHONPATH=src python -m hyperscanning_contrastive.plotting \
+    --run runs/circling_adaptation_pretrained_29770724 \
+    --output reports/circling_adaptation_pretrained_29770724
+```
+
+This CPU-only command reads the report and the two history CSVs; it does not load EEG or checkpoints.
+It accepts `shuffled/history_shuffled.csv` when the original history was renamed. Matplotlib is required.
+`retrieval.png` compares validation MRR/top-1 and fixed training-gallery real/assigned-match MRR.
+Stars mark the MRR-selected checkpoint in each arm. `diagnostics.png` shows minibatch loss, validation
+cosine margin, normalized embedding spread, and within-gallery effective rank. Both figures also export
+as vector PDFs. Chance lines are reference expectations, not significance thresholds; no smoothing or
+confidence intervals are added. Training diagnostic dyads may differ from the full training population.
+
+### Stage 3: held-out trials from familiar dyads
+
+Use `partner-adapt --validation-protocol within-dyad` for the intermediate generalization experiment.
+It retains the original 41 training dyads and randomly holds out eight eligible whole trials per dyad
+and condition, with split seed 2042. Both participants inherit the same trial assignment. Only the
+first clean offset-zero window (source seconds 2–6) is used, as in the previous pilot. Later windows
+are not read. The six original external-validation dyads (fold 1) and five test dyads (fold 2) are
+excluded from all model forward passes in this mode. Cache integrity checks still verify all files.
+
+There is no participant-held-out claim: this measures unseen-trial retrieval within familiar people
+and sessions. A randomized trial split can benefit from proximity in time; temporally blocked validation
+is a later control. Candidate galleries still contain trials from one partner and condition.
+
+The eight held-out trials supply the entire validation gallery in the default configuration. The
+remaining 10–12 trials per condition supply training batches of eight. Insufficient strata fail with an
+explicit error instead of silently changing the gallery size or excluding dyads. The paired-trial
+manifest `trial_splits.csv` records every eligible trial's assignment. Shuffled assignments are formed
+only among training trials. Training and validation feature stores remain separate even for the same dyad.
+
+Start from the original pretrained checkpoint and preserve the previous 20 × 100 update budget,
+last two trainable blocks plus pooling normalization, original MLP, and learning rates. Both arms run
+from identical model weights and matched batch schedules. Checkpoint selection uses within-dyad
+validation macro MRR, including epoch zero. Training diagnostics still use four training dyads;
+validation now covers all 41 familiar dyads, so its variability is not directly comparable to the
+previous six-dyad validation estimate. The report includes split counts and the trial-manifest hash.
+
+After syncing the code and explicitly copying the ignored HPC wrapper:
+
+```bash
+mkdir -p outputs errors
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+    bsub < src/hyperscanning_contrastive/hpc/circling_partner_within_dyad.lsf
+```
+
+The wrapper writes `runs/circling_within_dyad_pretrained_<job-id>/` and then generates PNG/PDF figures
+under `plots/` using Matplotlib. Review `adaptation.json`, both histories, `trial_splits.csv`, and the plots.
+No cache rebuild is required. The original unseen-dyad mode remains the command's default.
+
+For an existing GPU allocation, use:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-adapt \
+    --cache /work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+    --output runs/circling_within_dyad_pretrained_manual --device cuda \
+    --initialization pretrained --pairs 8 --epochs 20 --steps-per-epoch 100 \
+    --unfreeze-blocks 2 --backbone-lr 1e-5 --seed 42 --permutation-seed 1042 \
+    --validation-protocol within-dyad --validation-trials 8 --split-seed 2042
+```

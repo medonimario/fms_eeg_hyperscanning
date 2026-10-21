@@ -18,6 +18,7 @@ from .data import sha256
 from .overfit import ContrastiveLabram
 from .partner import METRICS
 from .ssl import EEGCache, SSLConfig
+from .trial_split import split_within_dyad
 
 
 def configure_adaptation(model: ContrastiveLabram, blocks: int) -> list[str]:
@@ -63,6 +64,9 @@ def train_adaptation(
     permutation_seed: int = 1042,
     unfreeze_blocks: int = 2,
     backbone_lr: float = 1e-5,
+    validation_protocol: str = "unseen-dyad",
+    validation_trials: int = 8,
+    split_seed: int = 2042,
 ) -> dict:
     """Train limited encoder adaptation on real EEG with validation-only model selection.
 
@@ -72,10 +76,14 @@ def train_adaptation(
     """
     if not np.isfinite(backbone_lr) or backbone_lr <= 0:
         raise ValueError("Backbone learning rate must be finite and positive.")
+    if validation_protocol not in {"unseen-dyad", "within-dyad"}:
+        raise ValueError("Unknown validation protocol.")
     config = SSLConfig(
         initialization=initialization, pairs=pairs, epochs=epochs, steps_per_epoch=steps_per_epoch, seed=seed
     )
     cache = EEGCache(cache_path, config)
+    if validation_protocol == "within-dyad":
+        split_within_dyad(cache, validation_trials, pairs, split_seed)
     torch.manual_seed(seed)
     model = ContrastiveLabram(initialization, checkpoint, False).to(device).eval()
     trainable = configure_adaptation(model, unfreeze_blocks)
@@ -101,11 +109,14 @@ def train_adaptation(
         for frame in cache.galleries("train", config)
         if int(frame.member.iloc[0]) == 0 and int(frame.group.iloc[0]) in diagnostic_groups
     ]
-    diagnostic_frames = [frame for key, frame in training.items() if key[0] in diagnostic_groups] + galleries
+    diagnostic_frames = [frame for key, frame in training.items() if key[0] in diagnostic_groups]
     pd.concat(galleries).to_csv(output / "galleries.csv", index=False)
     pd.concat(training_galleries).to_csv(output / "training_galleries.csv", index=False)
     cache.rows[["group", "fold", "split"]].drop_duplicates().to_csv(output / "splits.csv", index=False)
-    bank = diagnostic_bank(model, cache, diagnostic_frames)
+    cache.rows[["group", "condition", "trial_id", "condition_trial", "fold", "split"]].to_csv(
+        output / "trial_splits.csv", index=False
+    )
+    bank = diagnostic_bank(model, cache, galleries)
     head = copy.deepcopy(model.projection).cpu()
     pooled = evaluate_projection(nn.Identity(), bank, galleries)
     initial = evaluate_projection(head, bank, galleries)
@@ -113,6 +124,17 @@ def train_adaptation(
     initial.to_csv(output / "validation_initial.csv", index=False)
     report = {
         "scope": "Exploratory validation-only limited-backbone shared partner adaptation",
+        "validation_protocol": validation_protocol,
+        "validation_trials_per_condition": validation_trials if validation_protocol == "within-dyad" else None,
+        "split_seed": split_seed if validation_protocol == "within-dyad" else None,
+        "split_unit": "paired whole trial",
+        "crop_offset_seconds": 0,
+        "trial_splits_sha256": sha256(output / "trial_splits.csv"),
+        "split_counts": {
+            split: {"dyads": int(frame.group.nunique()), "paired_windows": len(frame)}
+            for split, frame in cache.rows.groupby("split")
+        },
+        "external_validation_evaluated": False,
         "initialization": initialization,
         "projection_profile": "legacy-mlp",
         "unfreeze_blocks": unfreeze_blocks,
@@ -128,7 +150,8 @@ def train_adaptation(
         "shuffled_training_pairs_sha256": sha256(output / "shuffled_training_pairs.csv"),
         "training_gallery_sha256": sha256(output / "training_galleries.csv"),
         "training_diagnostic_groups": diagnostic_groups,
-        "validation_fold": 1,
+        "validation_fold": 1 if validation_protocol == "unseen-dyad" else None,
+        "reserved_external_validation_fold": 1 if validation_protocol == "within-dyad" else None,
         "test_fold": 2,
         "test_evaluated": False,
         "pairs": pairs,
@@ -186,11 +209,19 @@ def train_adaptation(
                     losses.append(loss.item())
                     gradient_norms.append(float(gradient_norm))
             bank = diagnostic_bank(model, cache, diagnostic_frames)
+            validation_bank = diagnostic_bank(model, cache, galleries)
             head = copy.deepcopy(model.projection).cpu()
-            validation = evaluate_projection(head, bank, galleries)
+            validation = evaluate_projection(head, validation_bank, galleries)
             metrics = aggregate_queries(validation)["macro"]
             diagnostics = record_diagnostics(
-                head, bank, training_galleries, galleries, mappings if arm == "shuffled" else None, epoch, folder
+                head,
+                bank,
+                training_galleries,
+                galleries,
+                mappings if arm == "shuffled" else None,
+                epoch,
+                folder,
+                validation_bank=validation_bank,
             )
             history.append(
                 {

@@ -532,3 +532,13 @@ against the original frozen MLP, retaining identical galleries, trial mappings, 
 validation-only selection. The initial pilot uses encoder LR 1e-5, head LR 1e-3, constant schedule, and
 20 × 100 updates per arm; it is not yet the broader warm-up/patience search proposed above.
 Full held-out evaluation, multi-seed confirmation, and scientific surrogate inference remain future work.
+
+Stage 3 intermediate generalization update: before changing representations again, evaluate unseen
+whole trials from the original training dyads with `partner-adapt --validation-protocol within-dyad`.
+Reserve eight paired trials per dyad/condition using a fixed randomized split. Keep the original
+external-validation and test dyads unused. Keep the first four-second window, architecture, learning
+rates, and 20 × 100 update budget fixed. This distinguishes learning reusable within-session partner
+relationships from the harder transfer to unseen people. It reduces the number of training trials and
+expands validation to 41 familiar dyads; it is not a matched-sample-size estimate of a pure dyad effect.
+Success must exceed the matched shuffled-training control on held-out trials and later withstand
+blocked temporal validation. Preserve whole-trial assignments if additional windows are introduced.

@@ -1,0 +1,7 @@
+{
+  "sources": [
+    "/Volumes/mamed/FMs_EEG_hyperscanning/fms_eeg_hyperscanning/runs/circling_adaptation_pretrained_29770724/adaptation.json",
+    "/Volumes/mamed/FMs_EEG_hyperscanning/fms_eeg_hyperscanning/runs/circling_adaptation_pretrained_29770724/true/history.csv",
+    "/Volumes/mamed/FMs_EEG_hyperscanning/fms_eeg_hyperscanning/runs/circling_adaptation_pretrained_29770724/shuffled/history_shuffled.csv"
+  ]
+}

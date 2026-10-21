@@ -82,3 +82,85 @@ def test_invalid_unfreeze_count(tmp_path: Path) -> None:
     for blocks in (0, -1, 4):
         with pytest.raises(ValueError, match="Unfreeze count"):
             configure_adaptation(model, blocks)
+
+
+def test_within_dyad_trial_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Train only on assigned trials and never forward external validation or test dyads."""
+    from hyperscanning_contrastive.ssl import SSLConfig
+    from hyperscanning_contrastive.trial_split import split_within_dyad
+
+    path = make_cache(tmp_path / "cache")
+    config = SSLConfig(initialization="random", pairs=2)
+    first, second = EEGCache(path, config), EEGCache(path, config)
+    split_within_dyad(first, 2, 2, 2042)
+    split_within_dyad(second, 2, 2, 2042)
+    pd.testing.assert_frame_equal(first.rows, second.rows)
+    train = first.rows[first.rows.split == "train"]
+    validation = first.rows[first.rows.split == "validation"]
+    assert set(train.group) == set(validation.group) == {0}
+    assert set(train.trial_id).isdisjoint(validation.trial_id)
+    assert validation.groupby(["group", "condition"]).size().eq(2).all()
+    for split in ("train", "validation"):
+        frames = first.strata[split]
+        for a, b in zip(frames[::2], frames[1::2]):
+            assert a.trial_id.tolist() == b.trial_id.tolist()
+    original_signals = EEGCache.signals
+    forwarded = {"train": set(), "validation": set()}
+
+    def checked_signals(self: EEGCache, frame: pd.DataFrame) -> torch.Tensor:
+        """Require held-out trial exclusion whenever autograd is enabled."""
+        split = frame.split.iloc[0]
+        assert split in {"train", "validation"}
+        if torch.is_grad_enabled():
+            assert split == "train"
+        forwarded[split].update(frame.trial_id)
+        return original_signals(self, frame)
+
+    monkeypatch.setattr(EEGCache, "signals", checked_signals)
+    monkeypatch.setattr("hyperscanning_contrastive.adaptation.ContrastiveLabram", TinyAdaptiveEncoder)
+    output = tmp_path / "run"
+    report = train_adaptation(
+        path,
+        output,
+        tmp_path / "absent.pth",
+        initialization="random",
+        pairs=2,
+        epochs=2,
+        steps_per_epoch=3,
+        validation_protocol="within-dyad",
+        validation_trials=2,
+    )
+    assert forwarded["train"].isdisjoint(forwarded["validation"])
+    assert forwarded["validation"] == set(validation.trial_id)
+    assert report["validation_fold"] is None
+    assert report["reserved_external_validation_fold"] == 1
+    assert report["split_counts"]["validation"] == {"dyads": 1, "paired_windows": 6}
+    assert not report["test_evaluated"] and not report["external_validation_evaluated"]
+    manifest = pd.read_csv(output / "trial_splits.csv")
+    pd.testing.assert_frame_equal(manifest, first.rows[manifest.columns], check_index_type=False)
+    mapping = pd.read_csv(output / "shuffled_training_pairs.csv")
+    assert set(mapping.a_trial_id) == set(mapping.b_trial_id) == set(train.trial_id)
+    galleries = pd.read_csv(output / "galleries.csv")
+    assert set(galleries.trial_id) == set(validation.trial_id)
+    for arm in ("true", "shuffled"):
+        queries = pd.read_csv(output / arm / "validation_best.csv")
+        assert set(queries.trial_id) == set(validation.trial_id)
+        history = pd.read_csv(output / arm / "history.csv")
+        assert report["arms"][arm]["best_epoch"] == history.mrr.idxmax()
+    true = pd.read_csv(output / "true/history.csv").iloc[0]
+    shuffled = pd.read_csv(output / "shuffled/history.csv").iloc[0]
+    assert true.mrr == shuffled.mrr
+
+
+def test_within_dyad_insufficient_trials(tmp_path: Path) -> None:
+    """Reject short strata without silently shrinking galleries or dropping dyads."""
+    from hyperscanning_contrastive.ssl import SSLConfig
+    from hyperscanning_contrastive.trial_split import split_within_dyad
+
+    cache = EEGCache(make_cache(tmp_path / "cache"), SSLConfig(pairs=2))
+    original = cache.rows.copy()
+    with pytest.raises(ValueError, match="cannot supply"):
+        split_within_dyad(cache, 3, 2, 2042)
+    pd.testing.assert_frame_equal(cache.rows, original)
+    with pytest.raises(ValueError, match="gallery size"):
+        split_within_dyad(cache, 1, 2, 2042)

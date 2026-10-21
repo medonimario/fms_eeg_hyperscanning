@@ -58,6 +58,9 @@ def main() -> None:
     parser.add_argument("--projection-profile", choices=("legacy-mlp", "centered-linear"), default="legacy-mlp")
     parser.add_argument("--unfreeze-blocks", type=int, default=2, help="Final transformer blocks for partner-adapt.")
     parser.add_argument("--backbone-lr", type=float, default=1e-5, help="Encoder learning rate for partner-adapt.")
+    parser.add_argument("--validation-protocol", choices=("unseen-dyad", "within-dyad"), default="unseen-dyad")
+    parser.add_argument("--validation-trials", type=int, default=8, help="Whole trials held out per dyad/condition.")
+    parser.add_argument("--split-seed", type=int, default=2042, help="Within-dyad trial assignment seed.")
     args = parser.parse_args()
     if args.command == "partner-adapt":
         from .adaptation import train_adaptation
@@ -81,6 +84,9 @@ def main() -> None:
             args.permutation_seed,
             args.unfreeze_blocks,
             args.backbone_lr,
+            args.validation_protocol,
+            args.validation_trials,
+            args.split_seed,
         )
         return
     if args.command == "partner-train":

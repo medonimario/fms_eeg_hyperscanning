@@ -75,6 +75,7 @@ def record_diagnostics(
     mappings: dict | None,
     epoch: int,
     folder: Path,
+    validation_bank: dict | None = None,
 ) -> dict[str, float]:
     """Append per-gallery diagnostics and return equal-condition/dyad macro metrics for history."""
     result, records = {}, []
@@ -83,7 +84,8 @@ def record_diagnostics(
         ("train_objective", training, mappings),
         ("validation", validation, None),
     ):
-        frame = fixed_diagnostics(head, bank, galleries, assignment)
+        selected_bank = validation_bank if name == "validation" and validation_bank is not None else bank
+        frame = fixed_diagnostics(head, selected_bank, galleries, assignment)
         columns = frame.columns.difference(["group", "condition"])
         means = frame.groupby(["group", "condition"])[columns].mean().groupby("group").mean().mean()
         result.update({f"{name}_{key}": float(value) for key, value in means.items()})
