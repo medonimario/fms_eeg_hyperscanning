@@ -277,3 +277,46 @@ def test_alignment_geometry_and_assignment() -> None:
     assert true.iloc[0].cosine_margin == 1
     assert wrong.iloc[0].top1 == 0
     assert wrong.iloc[0].cosine_margin < 0
+
+
+def test_feature_center_ignores_validation() -> None:
+    """Held-out feature values cannot influence the fitted global mean."""
+    from hyperscanning_contrastive.alignment import fit_feature_center
+
+    bank = {
+        0: {"split": "train", "a": torch.zeros(2, 4), "b": torch.ones(2, 4) * 2},
+        1: {"split": "validation", "a": torch.ones(2, 4) * 999, "b": torch.ones(2, 4) * -555},
+    }
+    center = fit_feature_center(bank)
+    torch.testing.assert_close(center.mean, torch.ones(4))
+    torch.testing.assert_close(center(torch.ones(2, 4)), torch.zeros(2, 4))
+    assert not list(center.parameters())
+    assert "mean" in center.state_dict()
+    bank[1]["a"] *= 1000
+    torch.testing.assert_close(center.mean, fit_feature_center(bank).mean)
+
+
+def test_centered_linear_alignment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the geometry ablation with its fitted mean serialized in both selected heads."""
+    from hyperscanning_contrastive.alignment import train_alignment
+
+    cache = make_cache(tmp_path / "cache")
+    monkeypatch.setattr("hyperscanning_contrastive.alignment.ContrastiveLabram", TinyEncoder)
+    output = tmp_path / "centered"
+    report = train_alignment(
+        cache,
+        output,
+        tmp_path / "missing",
+        initialization="random",
+        pairs=4,
+        epochs=1,
+        steps_per_epoch=1,
+        projection_profile="centered-linear",
+    )
+    assert report["projection_profile"] == "centered-linear"
+    assert "centered_pooled" in report
+    initial = torch.load(output / "initial_projection.pt", weights_only=True)
+    for arm in ("true", "shuffled"):
+        state = torch.load(output / arm / "best_projection.pt", weights_only=True)
+        assert "1.bias" not in state
+        torch.testing.assert_close(state["0.mean"], initial["0.mean"])

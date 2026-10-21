@@ -66,3 +66,5 @@
 * Train Stage 3 frozen-feature projections with `PYTHONPATH=src python -m hyperscanning_contrastive partner-train --cache <cache> --output <new-run> --device cuda`. Each initialization runs true and fixed shuffled-training-pair arms from identical heads/sampling schedules; only projections train. Validation fold 1 selects checkpoints; test fold 2 is not scored. See `hpc/circling_partner_train.lsf` and package README.
 
 * Stage 3 `partner-train` now logs fixed train/validation retrieval, cosine margins, normalized embedding spread/effective rank, and gradient/update norms by default. Collect these with the existing wrapper in a new run; inspect both `true/history.csv` and `shuffled/history.csv` before changing optimization settings.
+
+* For the Stage 3 geometry ablation, pass `--projection-profile centered-linear` or set `PROJECTION_PROFILE=centered-linear` for the partner-training wrapper. Fit the global feature mean on training windows only; save and reuse it for all splits. The default `legacy-mlp` remains unchanged. Compare raw pooled, centered pooled, initial head, and true/shuffled selected heads.

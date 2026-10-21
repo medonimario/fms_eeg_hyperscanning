@@ -19,6 +19,30 @@ from .partner import METRICS, query_metrics
 from .ssl import EEGCache, SSLConfig
 
 
+class FeatureCenter(nn.Module):
+    """Apply a fixed training-only global mean to every participant and split."""
+
+    def __init__(self, mean: torch.Tensor) -> None:
+        """Store the fitted mean as a nontrainable checkpoint buffer."""
+        super().__init__()
+        self.register_buffer("mean", mean.detach().clone())
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Subtract the training mean without fitting on a batch or validation gallery."""
+        return features - self.mean
+
+
+def fit_feature_center(bank: dict) -> FeatureCenter:
+    """Fit one window-weighted mean on training features from both participants only."""
+    values = [entry[member] for entry in bank.values() if entry["split"] == "train" for member in ("a", "b")]
+    if not values:
+        raise ValueError("Cannot fit a feature mean without training features.")
+    mean = torch.cat(values).mean(0)
+    if not torch.isfinite(mean).all():
+        raise ValueError("Nonfinite training feature mean.")
+    return FeatureCenter(mean)
+
+
 def feature_bank(model: nn.Module, cache: EEGCache, batch_size: int = 8) -> dict:
     """Extract unaugmented frozen features from training/validation only, in bounded batches."""
     bank = {}
@@ -87,12 +111,15 @@ def train_alignment(
     steps_per_epoch: int = 100,
     seed: int = 42,
     permutation_seed: int = 1042,
+    projection_profile: str = "legacy-mlp",
 ) -> dict:
     """Fit true-pair and shuffled-pair heads from identical weights and matched batch schedules.
 
     Backbone extraction may use a GPU; the small projection heads train on CPU using detached features.
     Validation always uses real correspondence. Test signals are not extracted or evaluated.
     """
+    if projection_profile not in {"legacy-mlp", "centered-linear"}:
+        raise ValueError("Unknown projection profile.")
     config = SSLConfig(
         initialization=initialization, pairs=pairs, epochs=epochs, steps_per_epoch=steps_per_epoch, seed=seed
     )
@@ -106,13 +133,19 @@ def train_alignment(
     torch.manual_seed(seed)
     model = ContrastiveLabram(initialization, checkpoint, False).to(device).eval()
     bank = feature_bank(model, cache)
+    center = fit_feature_center(bank)
     initial_head = copy.deepcopy(model.projection).cpu()
+    if projection_profile == "centered-linear":
+        initial_head = nn.Sequential(copy.deepcopy(center), nn.Linear(center.mean.numel(), 128, bias=False))
+    torch.save(center.state_dict(), output / "feature_center.pt")
     torch.save(initial_head.state_dict(), output / "initial_projection.pt")
     torch.save(model.backbone.state_dict(), output / "backbone.pt")
     del model
     pooled = evaluate_projection(nn.Identity(), bank, galleries)
     initial = evaluate_projection(initial_head, bank, galleries)
     pooled.to_csv(output / "validation_pooled.csv", index=False)
+    centered_pooled = evaluate_projection(center, bank, galleries)
+    centered_pooled.to_csv(output / "validation_centered_pooled.csv", index=False)
     initial.to_csv(output / "validation_initial.csv", index=False)
     mappings = training_permutations(bank, permutation_seed)
     mapping_rows = []
@@ -126,6 +159,9 @@ def train_alignment(
     report = {
         "scope": "Exploratory validation-only frozen-backbone shared partner projection training",
         "initialization": initialization,
+        "projection_profile": projection_profile,
+        "feature_center_sha256": sha256(output / "feature_center.pt"),
+        "feature_center_fit": "global window-weighted training-only mean; both participants",
         "seed": seed,
         "permutation_seed": permutation_seed,
         "checkpoint_sha256": sha256(checkpoint) if initialization == "pretrained" else None,
@@ -148,6 +184,7 @@ def train_alignment(
         "projection_device": "cpu",
         "torch_version": torch.__version__,
         "pooled": aggregate_queries(pooled),
+        "centered_pooled": aggregate_queries(centered_pooled),
         "initial_projection": aggregate_queries(initial),
         "chance_top1": 1 / pairs,
         "chance_mrr": sum(1 / i for i in range(1, pairs + 1)) / pairs,

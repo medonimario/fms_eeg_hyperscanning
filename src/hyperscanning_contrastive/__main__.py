@@ -54,6 +54,7 @@ def main() -> None:
     parser.add_argument("--run", type=Path, help="Completed Stage 2 training directory for ssl-evaluate.")
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--permutation-seed", type=int, default=1042)
+    parser.add_argument("--projection-profile", choices=("legacy-mlp", "centered-linear"), default="legacy-mlp")
     args = parser.parse_args()
     if args.command == "partner-train":
         from .alignment import train_alignment
@@ -71,6 +72,7 @@ def main() -> None:
             args.steps_per_epoch,
             args.seed,
             args.permutation_seed,
+            args.projection_profile,
         )
         return
     if args.command == "partner-baseline":

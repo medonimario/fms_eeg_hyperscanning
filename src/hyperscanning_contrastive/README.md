@@ -419,3 +419,35 @@ Interpretation: improving fixed training scores with flat validation suggests po
 with tiny margins suggests ineffective discrimination; collapsing normalized spread/rank suggests collapse; tiny
 or absent optimizer updates suggests an optimization problem. None of these observations alone proves absence of
 shared EEG information. Inspect both the true and shuffled arms before selecting the next intervention.
+
+### Geometry ablation: training-centered, bias-free linear head
+
+Use `--projection-profile centered-linear` (or `PROJECTION_PROFILE=centered-linear` with the existing HPC wrapper)
+to test a simpler geometry when positive and negative cosines are both near one despite nonzero optimizer updates.
+The default `legacy-mlp` preserves the previous training architecture and settings.
+
+```bash
+export CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487
+PROJECTION_PROFILE=centered-linear INITIALIZATION=pretrained \
+  bsub < src/hyperscanning_contrastive/hpc/circling_partner_train.lsf
+PROJECTION_PROFILE=centered-linear INITIALIZATION=random \
+  bsub < src/hyperscanning_contrastive/hpc/circling_partner_train.lsf
+```
+
+Sync the updated Git-ignored wrapper as well as Python code. This profile subtracts a single 200-dimensional global
+mean fitted using all extracted training windows from both participants, weighted equally per window. Neither
+validation nor test contributes. The frozen mean is shared across participants, conditions, and arms; it is not fitted
+per batch, gallery, subject, or held-out dyad. The subsequent trainable head is a bias-free 200→128 linear map.
+Cosine normalization remains inside the scoring function. No per-feature standardization or whitening is applied.
+
+The run reports the original raw pooled baseline, a new centered-pooled baseline, the untrained profile-specific
+head, and the selected true/shuffled heads. `validation_centered_pooled.csv` isolates the effect of subtracting the
+mean without training. `feature_center.pt` stores the mean, which is also a buffer in the profile's saved projection
+checkpoints. `projection_profile` and `feature_center_sha256` identify the variant in `alignment.json`.
+
+This is a geometry ablation, not a proven collapse remedy: centering and head architecture both change, so any
+benefit cannot automatically be assigned to one of them. The extra centered-pooled baseline helps separate the
+centering effect. LR, temperature, epoch budget, true/shuffled mapping, galleries, diagnostics, and validation-MRR
+selection remain unchanged. Test dyads remain untouched. Compare normalized spread and cosine margins as well as
+training/validation MRR, and require a true-pair benefit over the shuffled-training control before interpreting an
+improvement as useful correspondence learning.
