@@ -698,3 +698,44 @@ just the best peak. If a slower run is still improving at epoch 20, its fixed-bu
 proof it cannot reach a better optimum. Repeat a promising fixed configuration with another model
 seed while retaining split/permutation seeds before increasing search breadth or changing tasks.
 Test and external-validation folds remain untouched. The enlarged validation search is exploratory.
+
+### Locked temporal transfer to unseen dyads
+
+Evaluate the original temporal run's `temperature_0.05` configuration (LR .001, decay .01),
+without retraining or selecting epochs using external results:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive temporal-transfer \
+    --cache <paired-cache> --run runs/circling_temporal_bridge_pretrained_29784849 \
+    --output <new-transfer-run> --experiment temperature_0.05 --device cuda
+```
+
+HPC: `CACHE=<paired-cache> bsub < src/hyperscanning_contrastive/hpc/circling_temporal_transfer.lsf`.
+The wrapper defaults to that source run; override `REFERENCE_RUN` and `EXPERIMENT` explicitly if
+necessary. Copy the ignored wrapper when deploying. To use the identical original configuration
+from the tuning run, specify `temperature_0.05_lr_0.001_wd_0.01`. Do not sweep configurations on
+external dyads. Initialization, candidate count, normalization, and encoder seed come from the
+source run rather than new training CLI settings.
+
+Only original fold 1 is evaluated, using clean cached 2–6/6–10-second window pairs from each
+participant separately. Eight eligible whole trials per dyad/condition are chosen once with seed
+`source seed + 2000`; both participants use the same trial gallery. The census records eligibility.
+Insufficient galleries fail before feature extraction. No training or test-fold EEG is forwarded;
+cache integrity checks may still read/hash all arrays. All representations use identical galleries.
+
+The command checks source report completion, settings/manifests, cache, backbone checkpoint, and
+initial/selected projection hashes; rejects source runs containing folds 1/2; and restores saved
+training-only standardization without fitting external features. Both arms use their own source
+within-dyad selected epochs, not epochs selected externally. The original pre-sweep report format
+is supported. Random initialization never reads pretrained checkpoints.
+
+Outputs: `transfer.json`, galleries/census, five per-person/condition score tables (raw pooled,
+standardized pooled, initial head, true-trained head, shuffled-trained head), paired per-dyad
+true-minus-reference differences, and `transfer_comparison.png`/`.pdf`. Plot lines connect the
+same dyad across representations; the black line shows macro means, not a training trajectory.
+
+Compare true-trained against raw pooled and shuffled control on the same external dyads. Transfer
+of the training advantage supports a future controlled temporal warm-start versus original-model
+partner experiment. Loss of that advantage suggests participant-specific adaptation. The six
+dyads have appeared in prior partner exploration, so this is exploratory external validation,
+not a fresh significance test. Original fold 2 remains untouched. No model is selected here.

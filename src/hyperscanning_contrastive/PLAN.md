@@ -570,3 +570,14 @@ hyperscanning objective and reserved folds; this intermediate task neither prove
 establishes a necessary prerequisite. Do not advance based on a selected validation peak alone:
 compare initial/pooled baselines, train/validation curves and the same-temperature control, then
 repeat a promising fixed setting before attempting partner warm-start transfer.
+
+### Temporal bridge follow-up: unseen participants
+
+After within-dyad temporal learning improved validation MRR beyond raw and shuffled baselines,
+lock the original .05-temperature/.001-LR/.01-decay configuration and evaluate its source-selected
+heads on original fold 1. Keep the same-person temporal task unchanged. Reuse training-fitted
+standardization and fixed eight-trial galleries for all representations. This separates transfer
+to unfamiliar participants from cross-person correspondence. `temporal-transfer` implements this
+read-only model evaluation, with paired dyad differences and plots. Do not retune on these six
+dyads or evaluate fold 2. A transferable advantage motivates a controlled partner warm-start
+comparison; its absence motivates understanding participant dependence first.

@@ -26,6 +26,7 @@ def main() -> None:
             "partner-adapt",
             "partner-spectral",
             "temporal-bridge",
+            "temporal-transfer",
         ),
     )
     parser.add_argument("--data-dir", type=Path)
@@ -69,7 +70,17 @@ def main() -> None:
     parser.add_argument("--groups-per-update", type=int, default=4)
     parser.add_argument("--learning-rates", nargs="+", type=float, default=[0.001])
     parser.add_argument("--weight-decays", nargs="+", type=float, default=[0.01])
+    parser.add_argument("--experiment", default="temperature_0.05", help="Locked source temporal experiment label.")
     args = parser.parse_args()
+    if args.command == "temporal-transfer":
+        from .temporal_transfer import evaluate_transfer
+
+        if args.cache is None or args.run is None:
+            parser.error("temporal-transfer requires --cache and --run")
+        if args.validation_fold != 1 or args.test_fold != 2:
+            parser.error("temporal-transfer evaluates original fold 1 only; fold 2 stays untouched")
+        evaluate_transfer(args.cache, args.run, args.output, args.checkpoint, args.experiment, args.device)
+        return
     if args.command == "temporal-bridge":
         from .temporal import run_temporal
 
