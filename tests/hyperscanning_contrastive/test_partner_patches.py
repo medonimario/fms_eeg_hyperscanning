@@ -103,3 +103,85 @@ def test_patch_experiment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
             torch.testing.assert_close(first["0.mean"], last["0.mean"])
             assert not torch.equal(first["1.weight"], last["1.weight"])
     assert (output / "patch_comparison.png").stat().st_size > 1000
+
+
+def test_tuning_arguments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nondefault CLI values reach optimizer and every scoring/training loss for a single profile."""
+    import sys
+
+    from hyperscanning_contrastive import __main__ as cli
+    from hyperscanning_contrastive import partner_windows as pw
+
+    path = window_cache(tmp_path / "cache")
+    output = tmp_path / "run"
+    monkeypatch.setattr(pp, "ContrastiveLabram", FakeEncoder)
+    optimizer = torch.optim.AdamW
+    loss = pw.contrastive_loss
+    score = pw.score_windows
+    observed = {"optimizer": 0, "loss": 0, "score": 0}
+
+    def checked_optimizer(params, **kwargs):
+        """Assert both arms use the requested optimization settings."""
+        assert kwargs == {"lr": 0.0001, "weight_decay": 0.0}
+        observed["optimizer"] += 1
+        return optimizer(params, **kwargs)
+
+    def checked_loss(a, b, temperature):
+        """Assert training receives the requested temperature."""
+        assert temperature == 0.2
+        observed["loss"] += 1
+        return loss(a, b, temperature)
+
+    def checked_score(head, bank, temperature, mappings=None):
+        """Assert baselines and diagnostics use the same temperature."""
+        assert temperature == 0.2
+        observed["score"] += 1
+        return score(head, bank, temperature, mappings)
+
+    monkeypatch.setattr(torch.optim, "AdamW", checked_optimizer)
+    monkeypatch.setattr(pw, "contrastive_loss", checked_loss)
+    monkeypatch.setattr(pw, "score_windows", checked_score)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "hyperscanning_contrastive",
+            "partner-patches",
+            "--cache",
+            str(path),
+            "--output",
+            str(output),
+            "--initialization",
+            "random",
+            "--validation-trials",
+            "2",
+            "--epochs",
+            "1",
+            "--temperature",
+            "0.2",
+            "--projection-lr",
+            "0.0001",
+            "--weight-decay",
+            "0",
+            "--readout-profiles",
+            "full",
+        ],
+    )
+    cli.main()
+    assert observed["optimizer"] == 2
+    assert observed["loss"] > 0 and observed["score"] > 0
+    assert (output / "full" / "partner_windows.json").exists()
+    assert not (output / "pooled").exists()
+    assert (output / "patch_comparison.png").exists()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [(0, 0.001, 0.01), (0.05, -1, 0.01), (0.05, 0.001, -1), (float("nan"), 0.001, 0.01), (0.05, float("inf"), 0.01)],
+)
+def test_invalid_tuning(values: tuple[float, float, float]) -> None:
+    """Fail before loading any model or cache on invalid optimization settings."""
+    from hyperscanning_contrastive.partner_windows import validate_optimization
+
+    with pytest.raises(ValueError, match="Invalid"):
+        validate_optimization(*values)

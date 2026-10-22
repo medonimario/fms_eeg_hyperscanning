@@ -12,7 +12,7 @@ from torch import nn
 
 from .data import CHANNELS, sha256
 from .overfit import ContrastiveLabram
-from .partner_windows import extract_features, fit_window_bank, plan_windows
+from .partner_windows import extract_features, fit_window_bank, plan_windows, validate_optimization
 from .ssl import EEGCache, SSLConfig
 
 PROFILES = ("pooled", "spatial", "temporal", "full")
@@ -80,8 +80,15 @@ def run_partner_patches(
     split_seed: int = 2042,
     permutation_seed: int = 1042,
     groups_per_update: int = 4,
+    temperature: float = 0.05,
+    projection_lr: float = 0.001,
+    weight_decay: float = 0.01,
+    profiles: tuple[str, ...] = PROFILES,
 ) -> dict:
     """Extract once, then train four matched open-only readouts and export comparisons."""
+    validate_optimization(temperature, projection_lr, weight_decay)
+    if not profiles or len(set(profiles)) != len(profiles) or not set(profiles) <= set(PROFILES):
+        raise ValueError("Profiles must be unique, nonempty, and supported.")
     if groups_per_update < 1:
         raise ValueError("groups_per_update must be positive.")
     cache = EEGCache(cache_path, SSLConfig(initialization=initialization, pairs=2, epochs=epochs), all_windows=True)
@@ -110,7 +117,7 @@ def run_partner_patches(
     del extractor, model
     (output / "token_audit.json").write_text(json.dumps(metadata, indent=2) + "\n")
     reports = {}
-    for profile in PROFILES:
+    for profile in profiles:
         folder = output / profile
         folder.mkdir()
         for name, frame in (("trial_splits", trials), ("windows", rows), ("census", census)):
@@ -141,9 +148,12 @@ def run_partner_patches(
             ("open",),
             structured=profile != "pooled",
             profile=profile,
+            temperature=temperature,
+            projection_lr=projection_lr,
+            weight_decay=weight_decay,
         )
         del bank
-    reference = reports["pooled"]["manifest_sha256"]
+    reference = reports[profiles[0]]["manifest_sha256"]
     if any(report["manifest_sha256"] != reference for report in reports.values()):
         raise ValueError("Readout splits, galleries, or shuffled mappings differ.")
     metadata["profiles"] = reports
@@ -160,20 +170,22 @@ def run_partner_patches(
                 }
             )
     pd.DataFrame(comparison).to_csv(output / "comparison.csv", index=False)
-    plot_comparison(output)
+    plot_comparison(output, profiles)
     (output / "patches.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
 
 
-def plot_comparison(output: Path) -> None:
+def plot_comparison(output: Path, profiles: tuple[str, ...] = PROFILES) -> None:
     """Compare validation and training chance excess for each readout and control."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(2, 4, figsize=(17, 7), sharex=True, sharey="row")
-    for column, profile in enumerate(PROFILES):
+    fig, axes = plt.subplots(
+        2, len(profiles), figsize=(max(6, 4.25 * len(profiles)), 7), sharex=True, sharey="row", squeeze=False
+    )
+    for column, profile in enumerate(profiles):
         for arm, color in (("true", "#0072B2"), ("shuffled", "#D55E00")):
             history = pd.read_csv(output / profile / arm / "history.csv")
             axes[0, column].plot(history.epoch, history.mrr_excess, color=color, label=arm)

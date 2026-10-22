@@ -111,3 +111,5 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
 **open** metrics, not its three-condition macro average. Automatic PNG/PDF curves are included.
 
 * Patch readouts: `PYTHONPATH=src python -m hyperscanning_contrastive partner-patches --cache <cache> --output <new-run> --device cuda` runs open-only pooled/spatial/temporal/full frozen readouts with matched true/shuffled arms. See package README and `hpc/circling_partner_patches.lsf`. Preserve pre-fc_norm tokens, check pooled reconstruction, and retain identical split/gallery/mapping manifests. Outputs include `patches.json`, `comparison.csv`, and PNG/PDF comparisons.
+
+* Partner readout optimization: `partner-windows` and `partner-patches` accept singular `--temperature`, `--projection-lr`, and `--weight-decay` (defaults 0.05/0.001/0.01). `partner-patches --readout-profiles full` selects a subset; default is all four. HPC wrappers expose TEMPERATURE/PROJECTION_LR/WEIGHT_DECAY and patch READOUT_PROFILES. Plural tuning flags remain specific to temporal sweeps.

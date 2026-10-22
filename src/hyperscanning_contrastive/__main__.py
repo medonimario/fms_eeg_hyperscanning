@@ -79,6 +79,18 @@ def main() -> None:
     parser.add_argument("--learning-rates", nargs="+", type=float, default=[0.001])
     parser.add_argument("--weight-decays", nargs="+", type=float, default=[0.01])
     parser.add_argument("--experiment", default="temperature_0.05", help="Locked source temporal experiment label.")
+    parser.add_argument(
+        "--temperature", type=float, default=0.05, help="partner-windows/partner-patches loss temperature."
+    )
+    parser.add_argument("--projection-lr", type=float, default=0.001, help="partner-windows/partner-patches head LR.")
+    parser.add_argument("--weight-decay", type=float, default=0.01, help="partner-windows/partner-patches AdamW decay.")
+    parser.add_argument(
+        "--readout-profiles",
+        nargs="+",
+        choices=("pooled", "spatial", "temporal", "full"),
+        default=["pooled", "spatial", "temporal", "full"],
+        help="partner-patches readouts to run.",
+    )
     args = parser.parse_args()
     if args.conditions is None:
         args.conditions = ["open"] if args.command in ("partner-windows", "partner-patches") else list(CONDITIONS)
@@ -101,6 +113,10 @@ def main() -> None:
             args.split_seed,
             args.permutation_seed,
             args.groups_per_update,
+            temperature=args.temperature,
+            projection_lr=args.projection_lr,
+            weight_decay=args.weight_decay,
+            profiles=tuple(args.readout_profiles),
         )
         return
     if args.command == "partner-windows":
@@ -123,6 +139,9 @@ def main() -> None:
             args.permutation_seed,
             args.groups_per_update,
             conditions=tuple(args.conditions),
+            temperature=args.temperature,
+            projection_lr=args.projection_lr,
+            weight_decay=args.weight_decay,
         )
         return
     if args.command == "temporal-transfer":

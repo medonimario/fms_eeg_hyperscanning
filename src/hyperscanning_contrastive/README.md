@@ -862,3 +862,30 @@ Each profile contains true/shuffled histories, selected per-dyad metrics, checkp
 Use validation improvement over both pooled and shuffled controls to decide whether to repeat across seeds.
 Different parameter counts confound structural comparisons; training improvement alone is insufficient.
 Feature tensors are held in CPU memory and not saved as a reusable cache; allow several GB RAM.
+
+
+### Configurable partner optimization
+
+Both `partner-windows` and `partner-patches` accept `--temperature` (default 0.05),
+`--projection-lr` (default 0.001), and `--weight-decay` (default 0.01). These configure actual training,
+baseline/diagnostic loss, and saved report settings; defaults reproduce the original experiments.
+Use singular flags here: plural `--temperatures`, `--learning-rates`, and `--weight-decays` belong to temporal sweeps.
+Nonfinite values, nonpositive LR/temperature, and negative weight decay are rejected before EEG extraction.
+
+`partner-patches --readout-profiles full` runs only the full readout, retaining both true/shuffled arms.
+The default still runs pooled, spatial, temporal, and full. Any unique subset is supported and comparison plots
+adapt to the selection. HPC wrappers accept `TEMPERATURE`, `PROJECTION_LR`, and `WEIGHT_DECAY`;
+the patch wrapper additionally accepts space-separated `READOUT_PROFILES`.
+
+Recommended bounded next test: change only temperature to 0.20 for the full readout, preserving LR 0.001,
+weight decay 0.01, seeds, split, galleries, and 20 epochs. Compare with the completed full-patch temperature 0.05 run.
+
+```bash
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+TEMPERATURE=0.20 PROJECTION_LR=0.001 WEIGHT_DECAY=0.01 READOUT_PROFILES=full \
+  bsub < src/hyperscanning_contrastive/hpc/circling_partner_patches.lsf
+```
+
+Copy updated Git-ignored wrappers explicitly to HPC. A lower loss at higher temperature is not by itself an
+improvement: inspect validation MRR/top1, true-versus-shuffled differences, and per-dyad consistency.
+If only training memorization changes, do not expand the optimizer sweep; test stronger readout constraints next.

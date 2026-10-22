@@ -150,6 +150,13 @@ def summarize(scores: pd.DataFrame) -> dict:
     }
 
 
+def validate_optimization(temperature: float, projection_lr: float, weight_decay: float) -> None:
+    """Reject nonfinite or invalid optimization settings before reading EEG."""
+    for name, value in (("temperature", temperature), ("projection_lr", projection_lr), ("weight_decay", weight_decay)):
+        if not np.isfinite(value) or value < 0 or (name != "weight_decay" and value == 0):
+            raise ValueError(f"Invalid {name}: {value}")
+
+
 def train_partner_windows(
     cache_path: Path,
     output: Path,
@@ -163,8 +170,12 @@ def train_partner_windows(
     permutation_seed: int = 1042,
     groups_per_update: int = 4,
     conditions: tuple[str, ...] = ("open",),
+    temperature: float = 0.05,
+    projection_lr: float = 0.001,
+    weight_decay: float = 0.01,
 ) -> dict:
     """Train fresh frozen-backbone heads on all usable intervals with matched shuffled controls."""
+    validate_optimization(temperature, projection_lr, weight_decay)
     if groups_per_update < 1:
         raise ValueError("groups_per_update must be positive.")
     cache = EEGCache(cache_path, SSLConfig(initialization=initialization, pairs=2, epochs=epochs), all_windows=True)
@@ -193,6 +204,9 @@ def train_partner_windows(
         permutation_seed,
         groups_per_update,
         conditions,
+        temperature=temperature,
+        projection_lr=projection_lr,
+        weight_decay=weight_decay,
     )
 
 
@@ -214,8 +228,12 @@ def fit_window_bank(
     conditions: tuple[str, ...],
     structured: bool = False,
     profile: str = "pooled",
+    temperature: float = 0.05,
+    projection_lr: float = 0.001,
+    weight_decay: float = 0.01,
 ) -> dict:
     """Fit matched readouts on a prepared feature bank using the same galleries and schedule."""
+    validate_optimization(temperature, projection_lr, weight_decay)
     scaler = FeatureStandardizer(bank["train"])
     torch.manual_seed(seed)
     if structured:
@@ -248,7 +266,7 @@ def fit_window_bank(
         ("standardized_pooled", nn.Sequential(scaler, nn.Flatten(1))),
         ("initial", initial),
     ):
-        scores = score_windows(head, bank["validation"], 0.05)
+        scores = score_windows(head, bank["validation"], temperature)
         scores.to_csv(output / f"validation_{name}.csv", index=False)
         baselines[name] = summarize(scores)
     report = {
@@ -265,9 +283,9 @@ def fit_window_bank(
         "validation_trials": validation_trials,
         "epochs": epochs,
         "groups_per_update": groups_per_update,
-        "temperature": 0.05,
-        "projection_lr": 0.001,
-        "weight_decay": 0.01,
+        "temperature": temperature,
+        "projection_lr": projection_lr,
+        "weight_decay": weight_decay,
         "gradient_clip": 1.0,
         "backbone_frozen": True,
         "readout_profile": profile,
@@ -313,7 +331,7 @@ def fit_window_bank(
         folder = output / arm
         folder.mkdir()
         head = copy.deepcopy(initial)
-        optimizer = torch.optim.AdamW(head.parameters(), lr=0.001, weight_decay=0.01)
+        optimizer = torch.optim.AdamW(head.parameters(), lr=projection_lr, weight_decay=weight_decay)
         rng = np.random.default_rng(seed + 4000)
         best = -float("inf")
         history = []
@@ -328,16 +346,16 @@ def fit_window_bank(
                         key = keys[index]
                         entry = bank["train"][key]
                         target = entry["b"][mappings[key]] if arm == "shuffled" else entry["b"]
-                        loss = contrastive_loss(head(entry["a"]), head(target), 0.05)
+                        loss = contrastive_loss(head(entry["a"]), head(target), temperature)
                         if not torch.isfinite(loss):
                             raise ValueError("Nonfinite partner loss.")
                         (loss / len(batch)).backward()
                         losses.append(loss.item())
                     nn.utils.clip_grad_norm_(head.parameters(), 1.0, error_if_nonfinite=True)
                     optimizer.step()
-            validation = score_windows(head, bank["validation"], 0.05)
-            train_true = score_windows(head, bank["train"], 0.05)
-            objective = train_true if arm == "true" else score_windows(head, bank["train"], 0.05, mappings)
+            validation = score_windows(head, bank["validation"], temperature)
+            train_true = score_windows(head, bank["train"], temperature)
+            objective = train_true if arm == "true" else score_windows(head, bank["train"], temperature, mappings)
             summary = summarize(validation)
             record = {"epoch": epoch, "train_loss": float(np.mean(losses)) if losses else None, **summary["macro"]}
             for name, scores in (("train_true", train_true), ("train_objective", objective)):
