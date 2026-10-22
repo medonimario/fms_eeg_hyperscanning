@@ -177,9 +177,54 @@ def train_partner_windows(
     model = ContrastiveLabram(initialization, checkpoint, False).to(device).eval()
     bank = extract_features(model, cache, rows)
     del model
+    return fit_window_bank(
+        cache_path,
+        output,
+        checkpoint,
+        bank,
+        trials,
+        rows,
+        initialization,
+        device,
+        validation_trials,
+        epochs,
+        seed,
+        split_seed,
+        permutation_seed,
+        groups_per_update,
+        conditions,
+    )
+
+
+def fit_window_bank(
+    cache_path: Path,
+    output: Path,
+    checkpoint: Path,
+    bank: dict,
+    trials: pd.DataFrame,
+    rows: pd.DataFrame,
+    initialization: str,
+    device: str,
+    validation_trials: int,
+    epochs: int,
+    seed: int,
+    split_seed: int,
+    permutation_seed: int,
+    groups_per_update: int,
+    conditions: tuple[str, ...],
+    structured: bool = False,
+    profile: str = "pooled",
+) -> dict:
+    """Fit matched readouts on a prepared feature bank using the same galleries and schedule."""
     scaler = FeatureStandardizer(bank["train"])
     torch.manual_seed(seed)
-    initial = nn.Sequential(scaler, nn.Linear(scaler.mean.numel(), 64, bias=False))
+    if structured:
+        positions, width = scaler.mean.shape
+        initial = nn.Sequential(
+            scaler, nn.Linear(width, 16, bias=False), nn.Flatten(1), nn.Linear(positions * 16, 64, bias=False)
+        )
+    else:
+        initial = nn.Sequential(scaler, nn.Linear(scaler.mean.numel(), 64, bias=False))
     torch.save(initial.state_dict(), output / "initial_projection.pt")
     rng = np.random.default_rng(permutation_seed)
     mappings = {key: rng.permutation(len(entry["a"])) for key, entry in bank["train"].items()}
@@ -198,7 +243,11 @@ def train_partner_windows(
         )
     pd.DataFrame(mapping_rows).to_csv(output / "shuffled_training_pairs.csv", index=False)
     baselines = {}
-    for name, head in (("pooled", nn.Identity()), ("standardized_pooled", scaler), ("initial", initial)):
+    for name, head in (
+        ("pooled", nn.Flatten(1)),
+        ("standardized_pooled", nn.Sequential(scaler, nn.Flatten(1))),
+        ("initial", initial),
+    ):
         scores = score_windows(head, bank["validation"], 0.05)
         scores.to_csv(output / f"validation_{name}.csv", index=False)
         baselines[name] = summarize(scores)
@@ -221,7 +270,8 @@ def train_partner_windows(
         "weight_decay": 0.01,
         "gradient_clip": 1.0,
         "backbone_frozen": True,
-        "projection": f"fresh training-standardized bias-free linear {scaler.mean.numel()}-to-64",
+        "readout_profile": profile,
+        "projection": "shared 200-to-16 then position-specific linear-to-64" if structured else "linear-to-64",
         "trainable_parameters": sum(p.numel() for p in initial.parameters()),
         "feature_device": device,
         "projection_device": "cpu",
@@ -335,7 +385,7 @@ def plot_partner_windows(output: Path, report: dict) -> None:
         )
     for ax, metric in zip(axes[:2], ("mrr", "top1"), strict=True):
         ax.axhline(history[f"chance_{metric}"].iloc[0], color="gray", linestyle="--", label="Gallery-matched chance")
-        ax.axhline(report["baselines"]["pooled"]["macro"][metric], color="black", linestyle=":", label="Raw pooled")
+        ax.axhline(report["baselines"]["pooled"]["macro"][metric], color="black", linestyle=":", label="Raw readout")
         ax.set(ylabel=metric.upper(), ylim=(0, 1), title="Held-out whole trials")
     axes[2].axhline(0, color="gray", linestyle=":")
     axes[2].set(ylabel="MRR minus gallery-matched chance", title="Train/validation (different candidate counts)")

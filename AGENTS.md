@@ -109,3 +109,5 @@ The open-only run retains 20 epochs, four independent interval sets per update, 
 It visits each usable open training set once per epoch, so total updates decrease with the number of conditions.
 Standardization and shuffled mappings are refitted for this open-only run. Compare against the prior run's
 **open** metrics, not its three-condition macro average. Automatic PNG/PDF curves are included.
+
+* Patch readouts: `PYTHONPATH=src python -m hyperscanning_contrastive partner-patches --cache <cache> --output <new-run> --device cuda` runs open-only pooled/spatial/temporal/full frozen readouts with matched true/shuffled arms. See package README and `hpc/circling_partner_patches.lsf`. Preserve pre-fc_norm tokens, check pooled reconstruction, and retain identical split/gallery/mapping manifests. Outputs include `patches.json`, `comparison.csv`, and PNG/PDF comparisons.

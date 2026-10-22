@@ -26,6 +26,7 @@ def main() -> None:
             "partner-adapt",
             "partner-spectral",
             "partner-windows",
+            "partner-patches",
             "temporal-bridge",
             "temporal-transfer",
         ),
@@ -38,7 +39,7 @@ def main() -> None:
         nargs="+",
         choices=CONDITIONS,
         default=None,
-        help="partner-windows defaults to open; data commands default to all conditions",
+        help="partner-windows/partner-patches default to open; data commands default to all conditions",
     )
     parser.add_argument("--window-strategy", choices=("max-clean", "fixed-grid"), default="max-clean")
     parser.add_argument("--cache", type=Path)
@@ -80,7 +81,28 @@ def main() -> None:
     parser.add_argument("--experiment", default="temperature_0.05", help="Locked source temporal experiment label.")
     args = parser.parse_args()
     if args.conditions is None:
-        args.conditions = ["open"] if args.command == "partner-windows" else list(CONDITIONS)
+        args.conditions = ["open"] if args.command in ("partner-windows", "partner-patches") else list(CONDITIONS)
+    if args.command == "partner-patches":
+        from .partner_patches import run_partner_patches
+
+        if args.cache is None or args.validation_fold != 1 or args.test_fold != 2:
+            parser.error("partner-patches requires --cache and reserves folds 1 and 2")
+        if args.conditions != ["open"]:
+            parser.error("partner-patches requires --conditions open")
+        run_partner_patches(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.device,
+            args.initialization,
+            args.validation_trials,
+            args.epochs,
+            args.seed,
+            args.split_seed,
+            args.permutation_seed,
+            args.groups_per_update,
+        )
+        return
     if args.command == "partner-windows":
         from .partner_windows import train_partner_windows
 

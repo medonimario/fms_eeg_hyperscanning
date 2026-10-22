@@ -826,3 +826,39 @@ The open-only run retains 20 epochs, four independent interval sets per update, 
 It visits each usable open training set once per epoch, so total updates decrease with the number of conditions.
 Standardization and shuffled mappings are refitted for this open-only run. Compare against the prior run's
 **open** metrics, not its three-condition macro average. Automatic PNG/PDF curves are included.
+
+
+### Frozen patch readout comparison
+
+Run `PYTHONPATH=src python -m hyperscanning_contrastive partner-patches --cache <paired-cache>
+--output <new-run> --device cuda` (one line), or submit
+`CACHE=<paired-cache> bsub < src/hyperscanning_contrastive/hpc/circling_partner_patches.lsf`.
+Copy the Git-ignored HPC wrapper explicitly; create `outputs/` and `errors/` before submission.
+
+This open-only experiment extracts frozen final transformer tokens once for eligible within-dyad train/validation
+windows. It never forwards reserved folds or closed-condition EEG. A hook captures tokens before `fc_norm`;
+every batch must reconstruct the original pooled features within numerical tolerance. Tokens are channel-major,
+time-minor (64 × 4 × 200), excluding CLS. `token_audit.json` records ordering, reconstruction error, normalization,
+and provenance; `frozen_fc_norm.pt` preserves the frozen normalization weights.
+
+Four subruns use identical whole-trial splits, interval galleries, fixed shuffled maps, and sampling schedules:
+
+| Profile | Retained positions | Head weights |
+| --- | --- | ---: |
+| pooled | Global average, original linear head | 12,800 |
+| spatial | 64 channels, time averaged | 68,736 |
+| temporal | 4 time positions, channels averaged | 7,296 |
+| full | All 256 channel/time positions | 265,344 |
+
+Normalize after averaging the discarded axes, then fit position-wise standardization using training windows only.
+Structured heads use shared bias-free 200→16 compression, flatten positions, and a bias-free linear projection to 64.
+Heads are shared between partners. No role labels, cross-attention, backbone updates, or fine temporal lag inference
+are introduced. Final contextual tokens contain information mixed across patches. The default 20 epochs, LR 0.001,
+weight decay 0.01, temperature 0.05 and four independent interval losses per update remain unchanged.
+
+Each profile contains true/shuffled histories, selected per-dyad metrics, checkpoints, and plots. Top-level
+`comparison.csv`, `patches.json`, and `patch_comparison.png/pdf` compare all readouts. Existing baseline keys
+`pooled`/`standardized_pooled` in each subreport mean the raw/standardized flattened readout for structured profiles.
+Use validation improvement over both pooled and shuffled controls to decide whether to repeat across seeds.
+Different parameter counts confound structural comparisons; training improvement alone is insufficient.
+Feature tensors are held in CPU memory and not saved as a reusable cache; allow several GB RAM.
