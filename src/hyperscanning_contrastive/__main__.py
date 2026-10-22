@@ -67,6 +67,8 @@ def main() -> None:
     parser.add_argument("--split-seed", type=int, default=2042, help="Within-dyad trial assignment seed.")
     parser.add_argument("--temperatures", nargs="+", type=float, default=[0.05, 0.1, 0.2])
     parser.add_argument("--groups-per-update", type=int, default=4)
+    parser.add_argument("--learning-rates", nargs="+", type=float, default=[0.001])
+    parser.add_argument("--weight-decays", nargs="+", type=float, default=[0.01])
     args = parser.parse_args()
     if args.command == "temporal-bridge":
         from .temporal import run_temporal
@@ -88,6 +90,8 @@ def main() -> None:
             args.permutation_seed,
             tuple(args.temperatures),
             args.groups_per_update,
+            tuple(args.learning_rates),
+            tuple(args.weight_decays),
         )
         return
     if args.command == "partner-spectral":

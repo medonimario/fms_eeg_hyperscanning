@@ -672,3 +672,29 @@ Interpret outcomes before adding another model:
 Temporal retrieval can exploit slow drift, task state or filtering across adjacent boundaries.
 Success is not evidence of interbrain coupling and is not a necessary biological prerequisite for
 partner retrieval. The purpose is a manageable intermediate test of transferable learning.
+
+### Bounded temporal optimization comparison
+
+After the first temporal run, keep temperature at 0.05 and compare learning rates
+`0.0001 0.0003 0.001` with AdamW weight decays `0.01 0.1`:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive temporal-bridge \
+    --cache <paired-cache> --output <new-run> --device cuda --epochs 20 \
+    --temperatures 0.05 --learning-rates 0.0001 0.0003 0.001 --weight-decays 0.01 0.1
+```
+
+HPC: `CACHE=<paired-cache> bsub < src/hyperscanning_contrastive/hpc/circling_temporal_tuning.lsf`.
+Copy this ignored wrapper explicitly. Six configurations each run true/shuffled controls; features
+are extracted once. The default command preserves the original LR/decay. Initial heads, trial
+splits, gallery selections, mapping and sampling schedules stay identical across configurations.
+`comparison.csv` summarizes each arm; `selected_experiment` and `selected_settings` identify the
+true-validation-MRR winner. `selected_temperature` remains the temperature-only label.
+
+This tests slower fitting and stronger weight decay, not a guarantee against overfitting. With
+cosine-normalized linear outputs, shrinking weight scale alone does not change rankings; AdamW
+can affect optimization without reliably reducing model capacity. Inspect the whole curves, not
+just the best peak. If a slower run is still improving at epoch 20, its fixed-budget result is not
+proof it cannot reach a better optimum. Repeat a promising fixed configuration with another model
+seed while retaining split/permutation seeds before increasing search breadth or changing tasks.
+Test and external-validation folds remain untouched. The enlarged validation search is exploratory.

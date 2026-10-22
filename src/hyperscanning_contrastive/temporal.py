@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -132,6 +133,8 @@ def run_temporal(
     permutation_seed: int = 1042,
     temperatures: tuple[float, ...] = (0.05, 0.1, 0.2),
     groups_per_update: int = 4,
+    learning_rates: tuple[float, ...] = (0.001,),
+    weight_decays: tuple[float, ...] = (0.01,),
 ) -> dict:
     """Run one frozen feature extraction and a bounded, matched temperature experiment.
 
@@ -146,6 +149,15 @@ def run_temporal(
         or groups_per_update < 1
     ):
         raise ValueError("Require distinct positive finite temperatures and a positive group batch size.")
+    for name, values, allow_zero in (("learning rates", learning_rates, False), ("weight decays", weight_decays, True)):
+        if (
+            not values
+            or len(set(values)) != len(values)
+            or any(not np.isfinite(v) or v < 0 or (v == 0 and not allow_zero) for v in values)
+        ):
+            raise ValueError(
+                f"Invalid {name}: require distinct finite {'nonnegative' if allow_zero else 'positive'} values."
+            )
     config = SSLConfig(initialization=initialization, pairs=pairs, epochs=epochs, seed=seed)
     cache = EEGCache(cache_path, config)
     rows, census = temporal_trials(cache, pairs, split_seed)
@@ -224,8 +236,10 @@ def run_temporal(
         "projection_device": "cpu",
         "backbone_frozen": True,
         "projection": f"training-only standardization then bias-free {width}-to-64 linear",
-        "projection_lr": 1e-3,
-        "weight_decay": 0.01,
+        "projection_lr": learning_rates[0] if len(learning_rates) == 1 else None,
+        "learning_rates": list(learning_rates),
+        "weight_decay": weight_decays[0] if len(weight_decays) == 1 else None,
+        "weight_decays": list(weight_decays),
         "gradient_clip": 1.0,
         "checkpoint_sha256": sha256(checkpoint) if initialization == "pretrained" else None,
         "cache_sha256": sha256(cache_path / "cache.json"),
@@ -242,14 +256,22 @@ def run_temporal(
     }
     (output / "settings.json").write_text(json.dumps(report, indent=2) + "\n")
     keys = list(bank["train"])
-    for temperature in temperatures:
+    report["experiment_settings"] = {}
+    for temperature, learning_rate, weight_decay in product(temperatures, learning_rates, weight_decays):
         label = f"temperature_{temperature:g}"
+        if learning_rates != (0.001,) or weight_decays != (0.01,):
+            label += f"_lr_{learning_rate:g}_wd_{weight_decay:g}"
+        report["experiment_settings"][label] = {
+            "temperature": temperature,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+        }
         report["experiments"][label] = {}
         for arm in ("true", "shuffled"):
             folder = output / label / arm
             folder.mkdir(parents=True)
             head = copy.deepcopy(initial_head)
-            optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=0.01)
+            optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate, weight_decay=weight_decay)
             rng = np.random.default_rng(seed + 4000)
             best, best_epoch = baselines["initial_projection"]["macro"]["mrr"], 0
             best_rows = temporal_metrics(head, bank["validation"], galleries["validation"], temperature)
@@ -305,14 +327,31 @@ def run_temporal(
                 **temporal_summary(best_rows),
                 "projection_sha256": sha256(folder / "best_projection.pt"),
             }
-    report["selected_temperature"] = max(
+    report["selected_experiment"] = max(
         report["experiments"], key=lambda k: report["experiments"][k]["true"]["macro"]["mrr"]
     )
+    report["selected_temperature"] = (
+        f"temperature_{report['experiment_settings'][report['selected_experiment']]['temperature']:g}"
+    )
+    report["selected_settings"] = report["experiment_settings"][report["selected_experiment"]]
     report["selection_note"] = (
-        "Selected by true-arm validation MRR only; same-temperature shuffled control; exploratory peak"
+        "Selected by true-arm validation MRR only; same-configuration shuffled control; exploratory peak"
     )
     report["settings_sha256"] = sha256(output / "settings.json")
     (output / "temporal.json").write_text(json.dumps(report, indent=2) + "\n")
+    comparison = []
+    for label, arms in report["experiments"].items():
+        for arm, result in arms.items():
+            comparison.append(
+                {
+                    "experiment": label,
+                    "arm": arm,
+                    **report["experiment_settings"][label],
+                    "best_epoch": result["best_epoch"],
+                    **result["macro"],
+                }
+            )
+    pd.DataFrame(comparison).to_csv(output / "comparison.csv", index=False)
     plot_temporal(output)
     return report
 
@@ -335,10 +374,11 @@ def plot_temporal(run: Path) -> None:
         for row in range(2):
             ax = axes[row, column]
             ax.axhline(report["chance_mrr"], color="gray", linestyle="--", label="chance")
+            title = label.replace("_lr_", "\nlr=").replace("_wd_", " wd=")
             ax.set(
                 xlabel="Epoch",
                 ylabel="MRR",
-                title=f"{label.replace('_', ' ')}: {'validation' if row == 0 else 'training objective'}",
+                title=f"{title}\n{'validation' if row == 0 else 'training objective'}",
             )
             ax.set_ylim(0, 1)
             ax.grid(alpha=0.2)

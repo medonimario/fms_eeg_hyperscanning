@@ -78,3 +78,44 @@ def test_matched_experiment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
             histories.append(history)
         assert histories[0].iloc[0].mrr == histories[1].iloc[0].mrr
     assert (output / "temporal_curves.png").stat().st_size > 1000
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"learning_rates": (0,)}, {"weight_decays": (-1,)}, {"learning_rates": (float("nan"),)}, {"weight_decays": ()}],
+)
+def test_invalid_optimization(tmp_path: Path, options: dict) -> None:
+    """Reject invalid sweep values before loading data or creating output."""
+    with pytest.raises(ValueError, match="Invalid"):
+        temporal.run_temporal(tmp_path / "missing", tmp_path / "output", tmp_path / "missing", **options)
+
+
+def test_optimization_grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each grid point gets its optimizer settings and matched initial metrics."""
+    monkeypatch.setattr(temporal, "ContrastiveLabram", TinyEncoder)
+    calls = []
+    original = torch.optim.AdamW
+
+    def optimizer(parameters, **kwargs):
+        """Record settings actually passed to the optimizer."""
+        calls.append(kwargs)
+        return original(parameters, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", optimizer)
+    monkeypatch.setattr(temporal, "plot_temporal", lambda _: None)
+    report = temporal.run_temporal(
+        temporal_cache(tmp_path / "cache"),
+        tmp_path / "out",
+        tmp_path / "absent",
+        initialization="random",
+        pairs=2,
+        epochs=1,
+        temperatures=(0.05,),
+        learning_rates=(0.001, 0.0003),
+        weight_decays=(0.01, 0.1),
+    )
+    assert len(report["experiments"]) == 4
+    assert len(calls) == 8
+    assert {(c["lr"], c["weight_decay"]) for c in calls} == {(lr, wd) for lr in (0.001, 0.0003) for wd in (0.01, 0.1)}
+    assert report["selected_settings"] == report["experiment_settings"][report["selected_experiment"]]
+    assert len(pd.read_csv(tmp_path / "out" / "comparison.csv")) == 8
