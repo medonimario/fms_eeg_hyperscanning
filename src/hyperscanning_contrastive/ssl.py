@@ -48,8 +48,14 @@ class SSLConfig:
 class EEGCache:
     """Verified memory-mapped paired cache with offset-matched, single-person galleries."""
 
-    def __init__(self, path: Path, config: SSLConfig) -> None:
-        """Verify manifests and signal hashes before selecting any data-dependent samples."""
+    def __init__(self, path: Path, config: SSLConfig, all_windows: bool = False) -> None:
+        """Verify manifests and signal hashes before selecting samples.
+
+        Args:
+            path: Prepared cache directory.
+            config: Legacy gallery and split settings.
+            all_windows: Retain the full verified manifest without constructing offset-zero strata.
+        """
         config.validate()
         self.path = path
         self.metadata = json.loads((path / "cache.json").read_text())
@@ -88,6 +94,10 @@ class EEGCache:
             if not np.issubdtype(indices.dtype, np.integer) or np.any(indices < 0) or np.any(indices >= len(array)):
                 raise ValueError("Invalid signal row indices.")
             self.arrays[name] = array
+        if all_windows:
+            self.rows = rows
+            self.strata = {}
+            return
         rows = rows[rows.crop_start_s == 0].copy()
         if rows.duplicated(["group", "condition", "trial_id"]).any():
             raise ValueError("Duplicate trials at the selected offset.")

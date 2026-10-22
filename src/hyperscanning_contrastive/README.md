@@ -739,3 +739,65 @@ of the training advantage supports a future controlled temporal warm-start versu
 partner experiment. Loss of that advantage suggests participant-specific adaptation. The six
 dyads have appeared in prior partner exploration, so this is exploratory external validation,
 not a fresh significance test. Original fold 2 remains untouched. No model is selected here.
+
+## Partner retrieval from all clean windows, within dyads
+
+`partner-windows` trains a fresh shared linear head on frozen LaBraM features. It does not load
+the temporal-trained head. A positive is opposite participants, same trial, same four-second
+interval. Negatives are the partner's other trials from the same dyad, condition and exact
+interval. Retrieval/loss is symmetric A→B and B→A. Different intervals or participants from
+other dyads never enter the same candidate matrix.
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-windows \
+    --cache <paired-cache> --output <new-run> --device cuda \
+    --validation-trials 8 --epochs 20 --groups-per-update 4
+```
+
+HPC: `CACHE=<paired-cache> bsub < src/hyperscanning_contrastive/hpc/circling_partner_windows.lsf`.
+Copy the ignored wrapper explicitly when deploying. No cache rebuilding is necessary.
+
+The verified `trials.csv` supplies every trial, including fully excluded trials, before splitting.
+Eight whole trials per development dyad/condition are assigned to validation deterministically
+(split seed 2042); all their windows and both participants follow that assignment. Original folds
+1 and 2 remain reserved. Every other trial is training. No requirement that offsets 0 and 4 both
+exist is imposed. Split manifests therefore differ from the earlier temporal intersection split.
+
+Use all clean cached intervals exactly as stored. In a clean trial these are source seconds
+2–6, 6–10, 10–14, 14–18. Artifact-dependent alternative starts remain eligible. Each
+split/dyad/condition/interval set must contain at least two distinct trials; singleton windows are
+listed as excluded, not silently replaced. Fully excluded trials remain in the split census. Fail
+if any development dyad/condition has no usable training or validation set. Reserved-fold signals
+are never forwarded, though cache integrity verification hashes their files.
+
+Every usable training set is visited once per epoch, using all its candidates. Four separate
+set losses are averaged per optimizer update (the final update can have fewer). There is no
+cross-set negative mixing and no fixed random 100-step epoch. Training features from both people
+fit one global coordinate standardizer. Train only a fresh bias-free 200→64 projection (12,800
+parameters). Fixed settings: temperature .05, LR .001, AdamW decay .01, gradient clip 1, 20 epochs.
+Use `--initialization random` for a separately labeled architecture control with no checkpoint access.
+
+True and fixed shuffled arms share initial heads, sets, update order and settings. Shuffles permute
+partner trial identities separately within each training interval set, allow fixed points, and
+never move targets across conditions, dyads or splits. They need not assign a trial the same false
+partner across different intervals. All validation scoring uses real correspondence.
+
+Validation uses every available held-out candidate at each interval (usually eight), not a reduced
+fixed-size subsample. Each score row records candidate and bidirectional query counts, matched
+chance top-1/MRR/recall@5/mean-rank, and excess over chance. Average intervals equally within each
+dyad/condition, then conditions within dyad and dyads globally. Consequently rare two-trial sets
+have the same interval weight but different chance levels; inspect the census and per-interval
+scores, not just aggregate accuracy. Checkpoint selection uses validation macro MRR on the same
+fixed galleries every epoch, retaining the earliest tie. Test/external folds are not scored.
+
+Outputs: `partner_windows.json`, `settings.json`, `trial_splits.csv`, all-window `windows.csv`
+with usage reasons, per-set `census.csv`, `shuffled_training_pairs.csv`, pooled/standardized/initial
+validation scores, true/shuffled histories, per-epoch and best per-interval validation scores,
+checkpoints, and `partner_windows_curves.png`/`.pdf`. Coverage records exact available and used
+paired-window counts; one paired window contains two EEG windows. Training diagnostics use full
+training candidate sets, which differ in size from validation; plots include MRR minus the
+appropriate chance baseline, but this does not make tasks with different candidate counts identical.
+
+Look for sustained true-pair validation improvement over raw/initial features and the shuffled
+control, then check conditions and dyads. Better training loss alone is not success. Correlated
+windows from one trial are not independent trials, and any open-condition advantage is exploratory.

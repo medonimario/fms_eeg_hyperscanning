@@ -25,6 +25,7 @@ def main() -> None:
             "partner-train",
             "partner-adapt",
             "partner-spectral",
+            "partner-windows",
             "temporal-bridge",
             "temporal-transfer",
         ),
@@ -72,6 +73,27 @@ def main() -> None:
     parser.add_argument("--weight-decays", nargs="+", type=float, default=[0.01])
     parser.add_argument("--experiment", default="temperature_0.05", help="Locked source temporal experiment label.")
     args = parser.parse_args()
+    if args.command == "partner-windows":
+        from .partner_windows import train_partner_windows
+
+        if args.cache is None:
+            parser.error("partner-windows requires --cache")
+        if args.validation_fold != 1 or args.test_fold != 2:
+            parser.error("partner-windows reserves original folds 1 and 2")
+        train_partner_windows(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.device,
+            args.initialization,
+            args.validation_trials,
+            args.epochs,
+            args.seed,
+            args.split_seed,
+            args.permutation_seed,
+            args.groups_per_update,
+        )
+        return
     if args.command == "temporal-transfer":
         from .temporal_transfer import evaluate_transfer
 

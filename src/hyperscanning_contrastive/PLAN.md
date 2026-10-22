@@ -581,3 +581,17 @@ to unfamiliar participants from cross-person correspondence. `temporal-transfer`
 read-only model evaluation, with paired dyad differences and plots. Do not retune on these six
 dyads or evaluate fold 2. A transferable advantage motivates a controlled partner warm-start
 comparison; its absence motivates understanding participant dependence first.
+
+### Agreed next experiment: directly train partner retrieval on all usable windows
+
+Temporal transfer succeeded exploratorily; the user chose fresh partner training rather than
+zero-shot reuse of the temporal head. Keep within-dyad whole-trial validation, now assigning eight
+trials per condition before window filtering. Use every clean non-overlapping cached interval;
+positives are simultaneous opposite-participant windows of the same trial, negatives are other
+trials of the same dyad/condition/exact interval. Preserve folds 1/2. Frozen original pretrained
+LaBraM plus a fresh training-standardized 200→64 linear head trains with full-coverage epochs,
+four interval-set losses/update, and matched fixed shuffled controls. Keep .05 temperature/.001
+LR/.01 decay for the first 20-epoch run. Variable validation galleries have explicit chance values;
+intervals then conditions then dyads receive equal aggregation weight. Audit rare singleton sets
+and all excluded windows. Advance based on held-out true-versus-baseline/control benefit, not
+training fit or window-level pseudo-replication. Implemented by `partner-windows`.
