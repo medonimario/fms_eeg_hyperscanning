@@ -595,3 +595,28 @@ LR/.01 decay for the first 20-epoch run. Variable validation galleries have expl
 intervals then conditions then dyads receive equal aggregation weight. Audit rare singleton sets
 and all excluded windows. Advance based on held-out true-versus-baseline/control benefit, not
 training fit or window-level pseudo-replication. Implemented by `partner-windows`.
+
+
+### Open-only partner-window experiment
+
+`partner-windows` now defaults to `--conditions open`. Only open windows enter feature standardization,
+true/shuffled training, baseline scoring, and validation checkpoint selection. Whole-trial splits are still
+assigned across all cache conditions before filtering, preserving the earlier open trial assignments and
+candidate galleries with the same split seed. Manifests retain excluded conditions with
+`reason=condition_not_selected`; report coverage counts only selected conditions. No cache rebuild is needed.
+Original external-validation/test dyads remain reserved. Mean-pooled frozen LaBraM features are unchanged.
+
+Submit the dedicated wrapper from the repository root:
+
+```bash
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+  bsub < src/hyperscanning_contrastive/hpc/circling_partner_windows_open.lsf
+```
+
+Create `outputs/` and `errors/` first. HPC scripts are Git-ignored: copy this wrapper explicitly when deploying.
+The existing `circling_partner_windows.lsf` explicitly retains all three conditions for reproduction;
+CLI reproduction uses `--conditions closed1 open closed2`.
+The open-only run retains 20 epochs, four independent interval sets per update, temperature 0.05, and LR 0.001.
+It visits each usable open training set once per epoch, so total updates decrease with the number of conditions.
+Standardization and shuffled mappings are refitted for this open-only run. Compare against the prior run's
+**open** metrics, not its three-condition macro average. Automatic PNG/PDF curves are included.

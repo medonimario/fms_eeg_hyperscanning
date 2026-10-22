@@ -84,3 +84,28 @@
 * Unseen-dyad temporal evaluation: `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive temporal-transfer --cache <cache> --run <completed-temporal-run> --output <new-run> --experiment temperature_0.05 --device cuda`. Defaults lock the original temperature-.05 run configuration; only fold 1 EEG is forwarded, fold 2 remains untouched. Verifies provenance and restores training-fitted statistics/selected heads; no retraining or external checkpoint selection. See README and `hpc/circling_temporal_transfer.lsf`; automatic paired-dyad plots and differences accompany `transfer.json`.
 
 * All-window partner experiment: `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive partner-windows --cache <cache> --output <new-run> --device cuda --validation-trials 8 --epochs 20 --groups-per-update 4`. Splits verified whole trials before grouping every clean window by dyad/condition/exact interval; opposite-participant positives and other-trial negatives. Fresh frozen-LaBraM standardized linear head; matched true/shuffled arms at temperature .05/LR .001/decay .01. Reports singleton exclusions, variable-gallery chance, interval/condition/dyad scores and plots. See README and `hpc/circling_partner_windows.lsf`. Legacy cache readers keep offset-zero behavior; the new reader opts into all windows.
+
+
+### Open-only partner-window experiment
+
+`partner-windows` now defaults to `--conditions open`. Only open windows enter feature standardization,
+true/shuffled training, baseline scoring, and validation checkpoint selection. Whole-trial splits are still
+assigned across all cache conditions before filtering, preserving the earlier open trial assignments and
+candidate galleries with the same split seed. Manifests retain excluded conditions with
+`reason=condition_not_selected`; report coverage counts only selected conditions. No cache rebuild is needed.
+Original external-validation/test dyads remain reserved. Mean-pooled frozen LaBraM features are unchanged.
+
+Submit the dedicated wrapper from the repository root:
+
+```bash
+CACHE=/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487 \
+  bsub < src/hyperscanning_contrastive/hpc/circling_partner_windows_open.lsf
+```
+
+Create `outputs/` and `errors/` first. HPC scripts are Git-ignored: copy this wrapper explicitly when deploying.
+The existing `circling_partner_windows.lsf` explicitly retains all three conditions for reproduction;
+CLI reproduction uses `--conditions closed1 open closed2`.
+The open-only run retains 20 epochs, four independent interval sets per update, temperature 0.05, and LR 0.001.
+It visits each usable open training set once per epoch, so total updates decrease with the number of conditions.
+Standardization and shuffled mappings are refitted for this open-only run. Compare against the prior run's
+**open** metrics, not its three-condition macro average. Automatic PNG/PDF curves are included.

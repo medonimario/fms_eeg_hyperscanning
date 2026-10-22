@@ -33,7 +33,13 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--bad-segments", type=Path, help="Trusted local six-second artifact pickle.")
     parser.add_argument("--output", type=Path, required=True, help="New audit/cache directory.")
-    parser.add_argument("--conditions", nargs="+", choices=CONDITIONS, default=list(CONDITIONS))
+    parser.add_argument(
+        "--conditions",
+        nargs="+",
+        choices=CONDITIONS,
+        default=None,
+        help="partner-windows defaults to open; data commands default to all conditions",
+    )
     parser.add_argument("--window-strategy", choices=("max-clean", "fixed-grid"), default="max-clean")
     parser.add_argument("--cache", type=Path)
     parser.add_argument(
@@ -73,6 +79,8 @@ def main() -> None:
     parser.add_argument("--weight-decays", nargs="+", type=float, default=[0.01])
     parser.add_argument("--experiment", default="temperature_0.05", help="Locked source temporal experiment label.")
     args = parser.parse_args()
+    if args.conditions is None:
+        args.conditions = ["open"] if args.command == "partner-windows" else list(CONDITIONS)
     if args.command == "partner-windows":
         from .partner_windows import train_partner_windows
 
@@ -92,6 +100,7 @@ def main() -> None:
             args.split_seed,
             args.permutation_seed,
             args.groups_per_update,
+            conditions=tuple(args.conditions),
         )
         return
     if args.command == "temporal-transfer":

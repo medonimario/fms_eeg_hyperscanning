@@ -22,8 +22,16 @@ SET_KEYS = ["split", "group", "condition", "crop_start_s"]
 TRIAL_KEYS = ["group", "condition", "trial_id"]
 
 
-def plan_windows(cache: EEGCache, validation_trials: int, seed: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def plan_windows(
+    cache: EEGCache, validation_trials: int, seed: int, conditions: tuple[str, ...] = ("open",)
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Assign whole paired trials before forming interval sets, including trials with no windows."""
+    if (
+        not conditions
+        or len(set(conditions)) != len(conditions)
+        or not set(conditions) <= set(cache.metadata["conditions"])
+    ):
+        raise ValueError("Conditions must be unique, nonempty, and present in the cache.")
     if validation_trials < 2:
         raise ValueError("At least two validation trials are required.")
     if "trials.csv" not in cache.metadata["manifest_sha256"]:
@@ -62,7 +70,8 @@ def plan_windows(cache: EEGCache, validation_trials: int, seed: int) -> tuple[pd
         if len(frame) < validation_trials + 2:
             raise ValueError("Too few whole trials for the requested split.")
         trials.loc[rng.choice(frame.index.to_numpy(), validation_trials, replace=False), "split"] = "validation"
-    rows = rows.merge(trials[TRIAL_KEYS + ["split"]], on=TRIAL_KEYS, validate="many_to_one")
+    trials["selected_condition"] = trials.condition.isin(conditions)
+    rows = rows.merge(trials[TRIAL_KEYS + ["split", "selected_condition"]], on=TRIAL_KEYS, validate="many_to_one")
     census = rows.groupby(SET_KEYS).size().rename("candidates").reset_index()
     census["used"] = census.split.isin(["train", "validation"]) & (census.candidates >= 2)
     census["reason"] = np.where(
@@ -70,8 +79,17 @@ def plan_windows(cache: EEGCache, validation_trials: int, seed: int) -> tuple[pd
         "reserved_fold",
         np.where(census.candidates < 2, "fewer_than_two_trials", "used"),
     )
+    census.loc[~census.condition.isin(conditions), "used"] = False
+    census.loc[~census.condition.isin(conditions), "reason"] = "condition_not_selected"
     rows = rows.merge(census[SET_KEYS + ["used", "reason"]], on=SET_KEYS, validate="many_to_one")
-    expected = set(map(tuple, trials[trials.split == "train"][["group", "condition"]].drop_duplicates().to_numpy()))
+    expected = set(
+        map(
+            tuple,
+            trials[(trials.split == "train") & trials.selected_condition][["group", "condition"]]
+            .drop_duplicates()
+            .to_numpy(),
+        )
+    )
     for split in ("train", "validation"):
         actual = set(
             map(tuple, rows[(rows.split == split) & rows.used][["group", "condition"]].drop_duplicates().to_numpy())
@@ -144,12 +162,13 @@ def train_partner_windows(
     split_seed: int = 2042,
     permutation_seed: int = 1042,
     groups_per_update: int = 4,
+    conditions: tuple[str, ...] = ("open",),
 ) -> dict:
     """Train fresh frozen-backbone heads on all usable intervals with matched shuffled controls."""
     if groups_per_update < 1:
         raise ValueError("groups_per_update must be positive.")
     cache = EEGCache(cache_path, SSLConfig(initialization=initialization, pairs=2, epochs=epochs), all_windows=True)
-    trials, rows, census = plan_windows(cache, validation_trials, split_seed)
+    trials, rows, census = plan_windows(cache, validation_trials, split_seed, conditions)
     output.mkdir(parents=True, exist_ok=False)
     trials.to_csv(output / "trial_splits.csv", index=False)
     rows.to_csv(output / "windows.csv", index=False)
@@ -185,6 +204,10 @@ def train_partner_windows(
         baselines[name] = summarize(scores)
     report = {
         "scope": "Exploratory within-dyad partner retrieval using all usable exact-interval windows",
+        "conditions": list(conditions),
+        "condition_policy": "Only selected conditions enter standardization, training, controls, and selection",
+        "trial_split_policy": "Split all cache conditions before filtering to preserve previous trial assignments",
+        "excluded_condition_windows": int((~rows.selected_condition).sum()),
         "initialization": initialization,
         "seed": seed,
         "split_seed": split_seed,
@@ -217,13 +240,13 @@ def train_partner_windows(
                 "dyads": int(frame.group.nunique()),
                 "paired_trials": len(frame),
                 "trials_with_no_cached_windows": int((frame.cached_windows == 0).sum()),
-                "cached_paired_windows": int((rows.split == split).sum()),
+                "cached_paired_windows": int(((rows.split == split) & rows.selected_condition).sum()),
                 "usable_paired_windows": int(((rows.split == split) & rows.used).sum()),
                 "excluded_singleton_windows": int(
                     ((rows.split == split) & (rows.reason == "fewer_than_two_trials")).sum()
                 ),
             }
-            for split, frame in trials.groupby("split")
+            for split, frame in trials[trials.selected_condition].groupby("split")
         },
         "training_sets_per_epoch": len(bank["train"]),
         "updates_per_epoch": int(np.ceil(len(bank["train"]) / groups_per_update)),
@@ -320,6 +343,7 @@ def plot_partner_windows(output: Path, report: dict) -> None:
         ax.set_xlabel("Epoch")
         ax.grid(alpha=0.2)
         ax.legend(fontsize=8)
+    fig.suptitle("Partner retrieval: " + ", ".join(report.get("conditions", ["all conditions"])))
     fig.tight_layout()
     for extension in ("png", "pdf"):
         fig.savefig(output / f"partner_windows_curves.{extension}", dpi=150)

@@ -70,6 +70,7 @@ def test_partner_training(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     def signals(self: EEGCache, rows: pd.DataFrame) -> torch.Tensor:
         """Audit encoded windows without allowing reserved EEG through."""
         assert set(rows.fold) == {0}
+        assert set(rows.condition) == {"open"}
         seen.extend((r.trial_id, r.crop_start_s, r.member) for r in rows.itertuples())
         return original(self, rows)
 
@@ -82,6 +83,10 @@ def test_partner_training(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     used = windows[windows.used]
     assert len(seen) == 2 * len(used)
     assert len(set(seen)) == len(seen)
+    assert report["conditions"] == ["open"]
+    assert report["coverage"]["train"]["paired_trials"] == 2
+    assert report["excluded_condition_windows"] == int((windows.condition != "open").sum())
+    assert set(report["baselines"]["initial"]["conditions"]) == {"open"}
     assert report["checkpoint_sha256"] is None
     assert report["training_paired_windows_per_epoch"] == len(used[used.split == "train"])
     assert report["updates_per_epoch"] == int(np.ceil(report["training_sets_per_epoch"] / 4))
@@ -105,3 +110,23 @@ def test_partner_training(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
         assert torch.equal(first["0.scale"], last["0.scale"])
         assert not torch.equal(first["1.weight"], last["1.weight"])
     assert (out / "partner_windows_curves.png").stat().st_size > 1000
+
+
+def test_condition_filter_preserves_splits(tmp_path: Path) -> None:
+    """Filtering supervision preserves the original whole-trial split and open galleries."""
+    cache = EEGCache(window_cache(tmp_path / "cache"), SSLConfig(pairs=2), all_windows=True)
+    all_trials, all_rows, _ = pw.plan_windows(cache, 2, 2042, ("closed1", "open", "closed2"))
+    trials, rows, census = pw.plan_windows(cache, 2, 2042)
+    pd.testing.assert_frame_equal(
+        trials.drop(columns="selected_condition"), all_trials.drop(columns="selected_condition")
+    )
+    pd.testing.assert_frame_equal(
+        rows[rows.condition == "open"].reset_index(drop=True),
+        all_rows[all_rows.condition == "open"].reset_index(drop=True),
+    )
+    assert set(rows[rows.used].condition) == {"open"}
+    assert not census[census.condition != "open"].used.any()
+    assert set(rows[rows.condition != "open"].reason) == {"condition_not_selected"}
+    for invalid in ((), ("open", "open"), ("missing",)):
+        with pytest.raises(ValueError, match="Conditions"):
+            pw.plan_windows(cache, 2, 2042, invalid)
