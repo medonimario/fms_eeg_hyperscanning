@@ -25,6 +25,7 @@ def main() -> None:
             "partner-train",
             "partner-adapt",
             "partner-spectral",
+            "temporal-bridge",
         ),
     )
     parser.add_argument("--data-dir", type=Path)
@@ -64,7 +65,31 @@ def main() -> None:
     parser.add_argument("--validation-protocol", choices=("unseen-dyad", "within-dyad"), default="unseen-dyad")
     parser.add_argument("--validation-trials", type=int, default=8, help="Whole trials held out per dyad/condition.")
     parser.add_argument("--split-seed", type=int, default=2042, help="Within-dyad trial assignment seed.")
+    parser.add_argument("--temperatures", nargs="+", type=float, default=[0.05, 0.1, 0.2])
+    parser.add_argument("--groups-per-update", type=int, default=4)
     args = parser.parse_args()
+    if args.command == "temporal-bridge":
+        from .temporal import run_temporal
+
+        if args.cache is None:
+            parser.error("temporal-bridge requires --cache")
+        if args.validation_fold != 1 or args.test_fold != 2:
+            parser.error("temporal-bridge reserves original folds 1 and 2")
+        run_temporal(
+            args.cache,
+            args.output,
+            args.checkpoint,
+            args.device,
+            args.initialization,
+            args.pairs,
+            args.epochs,
+            args.seed,
+            args.split_seed,
+            args.permutation_seed,
+            tuple(args.temperatures),
+            args.groups_per_update,
+        )
+        return
     if args.command == "partner-spectral":
         from .spectral import train_spectral
 

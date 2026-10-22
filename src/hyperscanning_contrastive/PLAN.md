@@ -558,3 +558,15 @@ sampling by trial. More windows do not create more independent trials. Then test
 capacity under the same within-dyad split if overfitting persists. Larger optimizer batches can average
 multiple matched dyad/condition galleries, but should not introduce cross-dyad identity shortcuts.
 Ordinary gradient accumulation does not increase the number of negatives in each contrastive loss.
+
+## Revision: bridge the gap between augmented views and partner retrieval
+
+Insert Stage 2.5 `temporal-bridge` before further partner optimization. The earlier augmented-view
+ceiling, including at random initialization, did not demonstrate learned transfer. Test same-person
+non-overlapping windows from held-out whole trials first. Use frozen features, full within-person
+training trial galleries and a bounded temperature comparison with matched shuffled controls.
+See README Stage 2.5 for the exact protocol and outcome-dependent decisions. Preserve the original
+hyperscanning objective and reserved folds; this intermediate task neither proves coupling nor
+establishes a necessary prerequisite. Do not advance based on a selected validation peak alone:
+compare initial/pooled baselines, train/validation curves and the same-temperature control, then
+repeat a promising fixed setting before attempting partner warm-start transfer.

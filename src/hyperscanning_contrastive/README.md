@@ -613,3 +613,62 @@ Read `spectral.json` (`direct`, `initial_projection`, and both `arms`), the two 
 The retrieval plots include the direct spectral baseline. This is a lower-capacity representation
 comparator, not a pure feature-only ablation of the original MLP. It does not measure interbrain phase
 synchrony or time-resolved coupling. Results remain exploratory validation results.
+
+## Stage 2.5: temporal bridge before partner retrieval
+
+The augmented-window task was almost perfect before training, including with random weights.
+It verified correspondence and optimization but did not establish useful learned generalization.
+Partner adaptation subsequently improved training retrieval much more than held-out retrieval;
+changing temperature alone cannot establish that the desired shared information exists.
+
+The next bounded experiment retrieves a **different non-overlapping window from the same person
+and trial**, among other trials from that person and condition. Source interval is 2–6 seconds;
+target is 6–10 seconds. Only cached clean windows at crop offsets 0 and 4 are eligible. Existing
+symmetric artifact exclusions remain intact. A fresh deterministic split holds out eight whole
+paired trials per dyad/condition, after intersecting window availability. Both people share the
+trial split. Original fold 1 and fold 2 signals are never forwarded to the encoder. This is a new
+experiment: its galleries must not be compared numerically as if identical to earlier partner runs.
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive temporal-bridge \
+    --cache <paired-cache> --output <new-run> --device cuda \
+    --temperatures 0.05 0.1 0.2 --groups-per-update 4
+```
+
+Use `hpc/circling_temporal_bridge.lsf` on HPC. These wrappers may be ignored by Git: copy the new
+wrapper explicitly when deploying. Feature extraction uses frozen original LaBraM once. Head
+training uses CPU, global training-only coordinate standardization and a bias-free linear 64-D
+projection. Random initialization never reads pretrained weights. No previous SSL checkpoint is
+assumed to improve this task.
+
+Each epoch visits **every eligible training trial for both people**. The denominator contains all
+remaining trials from one person/condition, typically up to 12, not trials from other participants.
+Four such losses are averaged per optimizer step. Thus approximately 40–48 pair presentations per
+update do **not** mean 40–48 negatives per query. The report records actual counts. A stratum with
+fewer than 16 eligible trials fails explicitly before model loading; do not silently drop dyads.
+
+The three temperatures run true and fixed shuffled correspondence arms from identical initial
+heads and sampling orders. Shuffles stay within training person/condition and permit fixed points.
+Validation always uses true correspondence. Training diagnostic galleries use eight candidates,
+so their MRR is comparable to validation; optimization uses the full training gallery. Temperature
+changes loss and gradients, not ranking of fixed cosine scores. The true validation MRR selects
+an epoch and temperature; report its matched control, not whichever control is lowest. This is
+exploratory selection, not a significance test.
+
+Outputs include `temporal.json`, eligibility census, trial and gallery manifests, shuffled mapping,
+per-temperature/arm histories and checkpoints, and automatic `temporal_curves.png`/`.pdf`.
+Curves show training-objective and held-out-trial MRR with chance and initial baselines. Raw pooled,
+standardized pooled, and initial-projection scores are also saved separately.
+
+Interpret outcomes before adding another model:
+
+| Result | Next decision |
+| --- | --- |
+| Raw/initial representations already near ceiling | This task is another engineering check, not evidence of learned improvement. Do not tune it further. |
+| Training improves but validation does not | Temporal transfer itself is failing; inspect trial drift, features and timing before more partner fine-tuning. |
+| True arm improves over initial representations and matched shuffled arm on validation | Repeat the fixed setting with another seed before testing temporal warm-start versus original initialization on partner retrieval under the same split. |
+| Neither arm fits training | Use a fixed tiny temporal gallery to distinguish optimization/capacity problems from generalization. |
+
+Temporal retrieval can exploit slow drift, task state or filtering across adjacent boundaries.
+Success is not evidence of interbrain coupling and is not a necessary biological prerequisite for
+partner retrieval. The purpose is a manageable intermediate test of transferable learning.
