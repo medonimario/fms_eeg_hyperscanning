@@ -889,3 +889,63 @@ TEMPERATURE=0.20 PROJECTION_LR=0.001 WEIGHT_DECAY=0.01 READOUT_PROFILES=full \
 Copy updated Git-ignored wrappers explicitly to HPC. A lower loss at higher temperature is not by itself an
 improvement: inspect validation MRR/top1, true-versus-shuffled differences, and per-dyad consistency.
 If only training memorization changes, do not expand the optimizer sweep; test stronger readout constraints next.
+
+### Video EEG Stage 0: audit and prepare
+
+The separate `video-audit` and `video-prepare` commands support the local shared-stimulus video dataset.
+They do not change the Circling loader, use Circling's artifact dictionary, create training splits, or train models.
+Use new output directories; an existing directory is never overwritten.
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive video-audit \
+  --data-dir '/Users/mamed/Work/data_for_mario 2' --output runs/video_audit
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive video-prepare \
+  --data-dir '/Users/mamed/Work/data_for_mario 2' --output runs/video_cache
+```
+
+Audit reads every NPZ signal, including excluded recordings, but writes no EEG arrays. Prepare repeats the audit
+and writes included continuous recordings as float32 `(64, n_samples)` microvolt NPY files at 200 Hz. It preserves
+native ordering metadata, reorders by channel names, converts volts once, and resamples with continuous polyphase
+anti-alias filtering (25/32). Model scaling remains division by 100, once at model input. Native 256 Hz signals
+remain available at source for CorrCA. The cache deliberately uses a different contract from Circling's EEGCache.
+
+Outputs:
+
+- `participants.csv`: identities, together grouping, A/B profile, configuration and exclusion policy.
+- `files.csv`: source/signal hashes, native trigger indices, duration/quality statistics, cache paths and array hashes.
+- `windows.csv`: all complete four-second grid windows, native/resampled indices, stimulus ID, QC and eligibility.
+- `missing.csv`, `pairs.csv`: missing films and actual-partner completeness, lengths and original-index differences.
+- `census.csv`, `moment_coverage.csv`: window counts and eligible viewers/independent groups per moment and condition.
+- `audit.json` or `cache.json`: completion record, configuration, software versions and manifest hashes.
+
+The grid is anchored at segment-relative zero and never shifts after an excluded window. Common support per film
+uses the shortest included recording. Default edge guards are four seconds at each end of common support.
+Both original indices and exported-relative indices are retained; original 2048 Hz samples must not be interpreted
+as 256 Hz indices or aligned between independent recording sessions. No time warping or extra timing correction
+is performed. Alignment is recorded as user-reported photodiode correction, not independently verified frame timing.
+
+Default gross QC excludes a window if any sample exceeds 200 microvolts, any channel has standard deviation below
+0.01 microvolts, or a sample jump exceeds 200 microvolts. These are configurable screening thresholds, not validated
+clinical artifact labels. A nonfinite value excludes the entire recording so resampling cannot spread NaNs. Exact
+normalized-signal duplicates are recorded and subsequent copies excluded. Quality masks are computed on native
+windows; filtering can extend a local transient into adjacent samples, so downstream temporal guards remain needed.
+Excluded/flagged windows are retained in manifests, never concatenated or silently discarded from the time axis.
+
+`solo11_A_1` is excluded as confirmed faulty. `pair4_together_A_4_p2` and `pair9_together_A_9_p2` are provisionally
+excluded; `--include-provisional` includes those two for a separately named sensitivity cache. Good partners remain
+eligible for general cross-person tasks. Babble waveform identity is unknown and is not inferred from A/B.
+The A/B noise mapping is film-specific; video0 is no-noise. The split column remains `unassigned` and
+`evaluation_ready` is false: no training loader should treat this cache as already partitioned.
+
+The CPU wrapper is `hpc/video_data.lsf` (Git-ignored; copy explicitly to HPC):
+
+```bash
+mkdir -p outputs errors
+VIDEO_DATA_DIR='/actual/cluster/video/path' STAGE=audit \
+  bsub < src/hyperscanning_contrastive/hpc/video_data.lsf
+# After reviewing the census, use STAGE=prepare with the same source.
+```
+
+`VIDEO_DATA_DIR` must be supplied; no cluster source path is assumed. Wrapper overrides include OUTPUT_DIR,
+EDGE_GUARD, AMPLITUDE_UV and FLAT_STD_UV. A failed run has no final JSON completion marker; use a new directory
+for retry. Full hashes and signal scans require reading all recordings, even for audit.

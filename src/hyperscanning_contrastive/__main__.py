@@ -15,6 +15,8 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-audit",
+            "video-prepare",
             "prepare",
             "controls",
             "overfit",
@@ -91,7 +93,31 @@ def main() -> None:
         default=["pooled", "spatial", "temporal", "full"],
         help="partner-patches readouts to run.",
     )
+    parser.add_argument("--edge-guard", type=float, default=4.0, help="Video edge guard in seconds.")
+    parser.add_argument("--amplitude-uv", type=float, default=200.0, help="Video gross-artifact threshold.")
+    parser.add_argument("--flat-std-uv", type=float, default=0.01, help="Video flat-channel threshold.")
+    parser.add_argument(
+        "--include-provisional", action="store_true", help="Include provisionally noisy video subjects."
+    )
     args = parser.parse_args()
+    if args.command in ("video-audit", "video-prepare"):
+        import json
+
+        from .video_data import prepare_videos
+
+        if args.data_dir is None:
+            parser.error("Video commands require --data-dir")
+        report = prepare_videos(
+            args.data_dir,
+            args.output,
+            prepare=args.command == "video-prepare",
+            edge_guard=args.edge_guard,
+            amplitude_uv=args.amplitude_uv,
+            flat_std_uv=args.flat_std_uv,
+            include_provisional=args.include_provisional,
+        )
+        print(json.dumps(report, indent=2))
+        return
     if args.conditions is None:
         args.conditions = ["open"] if args.command in ("partner-windows", "partner-patches") else list(CONDITIONS)
     if args.command == "partner-patches":
