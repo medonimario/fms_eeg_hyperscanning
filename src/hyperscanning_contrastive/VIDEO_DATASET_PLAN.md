@@ -180,3 +180,10 @@ All 714 files scanned. Default exclusions retain 77 participants. Of 28,916 comp
 Eligible windows: 13,119 solo and 13,048 together. Screening thresholds are explicit configurable defaults,
 not a replacement for a validated artifact detector. The six absent recordings match the supplied description.
 No nonfinite recordings or exact duplicate signals were found. Splits remain unassigned.
+
+## Stage 1 implementation
+
+`video-baseline` now implements the solo/no-noise held-time waveform/CorrCA pilot and misaligned-training control.
+It uses the portable verified 200Hz cache rather than reopening native 256Hz recordings, retaining all temporal
+samples. Tiny neural-network fitting and 8/16s sensitivity analyses remain later checks. See README for the exact
+participant reservation, temporal split, galleries, covariance weighting, outputs, and limitations.

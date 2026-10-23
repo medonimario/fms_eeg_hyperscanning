@@ -15,6 +15,7 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-baseline",
             "video-audit",
             "video-prepare",
             "prepare",
@@ -99,7 +100,16 @@ def main() -> None:
     parser.add_argument(
         "--include-provisional", action="store_true", help="Include provisionally noisy video subjects."
     )
+    parser.add_argument("--corrca-components", type=int, default=3)
+    parser.add_argument("--corrca-shrinkage", type=float, default=0.1)
     args = parser.parse_args()
+    if args.command == "video-baseline":
+        from .video_baseline import run_video_baseline
+
+        if args.cache is None:
+            parser.error("video-baseline requires --cache")
+        print(run_video_baseline(args.cache, args.output, args.seed, args.corrca_components, args.corrca_shrinkage))
+        return
     if args.command in ("video-audit", "video-prepare"):
         import json
 

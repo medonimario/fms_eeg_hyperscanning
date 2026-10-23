@@ -949,3 +949,33 @@ VIDEO_DATA_DIR='/actual/cluster/video/path' STAGE=audit \
 `VIDEO_DATA_DIR` must be supplied; no cluster source path is assumed. Wrapper overrides include OUTPUT_DIR,
 EDGE_GUARD, AMPLITUDE_UV and FLAT_STD_UV. A failed run has no final JSON completion marker; use a new directory
 for retry. Full hashes and signal scans require reading all recordings, even for audit.
+
+### Video Stage 1: held-time synchrony/retrieval pilot
+
+Run `PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m hyperscanning_contrastive video-baseline --cache <video-cache> --output <new-run>`.
+HPC: `CACHE=<video-cache> bsub < src/hyperscanning_contrastive/hpc/video_baseline.lsf`.
+Copy the HPC wrapper explicitly if deploying through Git (HPC scripts are ignored).
+
+This CPU experiment uses solo video0 only. It reserves 20% of available identity groups (rounded up in each
+social-condition/counterbalance stratum, together partners kept together); reserved signals are never loaded.
+Among development viewers, the final eight eligible stimulus positions define a shared validation block.
+One preceding four-second window is purged. All earlier eligible positions fit shared CorrCA filters.
+Each pair's fixed gallery uses the earliest four common valid positions separated by at least eight seconds;
+pairs without four candidates are reported as skipped. Train galleries are diagnostics, not held-out performance.
+
+Compare per-channel waveform correlation, three shared CorrCA components, and CorrCA fitted after independently
+circularly shifting each person's training-window ordering. The control preserves individual windows without
+wrapping samples within a window; with QC gaps it is an ordering shift, not a uniform time lag. Same validation
+signals/galleries are used for all models. Per-window temporal demeaning and unit-norm normalization define
+waveform correlation; no scaling is fitted on validation. Covariance averages viewers/pairs within each moment,
+then moments equally. Default within-person covariance shrinkage is 0.1 toward its scaled identity.
+Arguments `--corrca-components` and `--corrca-shrinkage` are explicit; don't sweep them on this pilot yet.
+
+For portability this pilot uses the verified **200Hz cache**, instead of reopening native 256Hz sources proposed
+in the plan. It retains all 800 temporal samples per window. It does not use LaBraM or fit a neural network.
+Outputs: `baseline.json`, train/validation `pair_metrics.csv` and `person_metrics.csv`, identity/window split
+manifests, galleries, control mapping, filters and PNG/PDF comparison figures. Aggregate scores weight people
+equally after averaging available partners. Pair scores are dependent; no significance claim or p-value is made.
+Chance K=4 top1=0.25 and MRR=0.520833. The four-second split gap does not independently verify the support of
+upstream zero-phase filtering; later use a wider-gap sensitivity check. These are fixed pilot settings, not a
+completed test evaluation or a no-noise versus babble comparison.
