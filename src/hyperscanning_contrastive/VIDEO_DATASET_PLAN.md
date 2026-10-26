@@ -214,3 +214,11 @@ Both readouts use the frozen pretrained backbone. All variants share saved split
 Participant means use common training movie moments; this must remain explicitly labelled as calibration.
 Temporal tokens retain ordered time positions without flattening the full spatial grid. See README for exact
 capacity, normalization, controls and outputs. Full-token heads and backbone adaptation remain subsequent options.
+
+## Spatial/full-token accessibility test
+
+The existing `video-projection` command now accepts spatial and full-token readouts with compact learned channel
+mixtures. Direct diagnostics compare corresponding token positions; learned heads allow shared channel mixtures
+without pair-conditioned alignment. All geometry fits and galleries remain identical to the earlier experiment.
+A diagnostics-only mode allows reviewing frozen representation accessibility before head training. The original
+pooled/temporal defaults remain unchanged. See README for exact shapes, head capacities, and HPC invocation.

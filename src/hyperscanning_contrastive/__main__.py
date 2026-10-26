@@ -116,6 +116,10 @@ def main() -> None:
     parser.add_argument(
         "--centerings", nargs="+", choices=("none", "global", "participant"), default=["global", "participant"]
     )
+    parser.add_argument(
+        "--video-readouts", nargs="+", choices=("pooled", "temporal", "spatial", "full"), default=["pooled", "temporal"]
+    )
+    parser.add_argument("--diagnostics-only", action="store_true", help="Video projection: direct geometry only.")
     args = parser.parse_args()
     if args.command == "video-projection":
         from .video_projection import run_video_projection
@@ -138,6 +142,8 @@ def main() -> None:
                 args.seed,
                 args.inference_batch_size,
                 tuple(args.centerings),
+                tuple(args.video_readouts),
+                args.diagnostics_only,
             )
         )
         return

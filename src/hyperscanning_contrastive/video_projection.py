@@ -1,4 +1,4 @@
-"""Training-only centering and compact pooled/temporal frozen-LaBraM heads."""
+"""Training-only centering and compact structured frozen-LaBraM heads."""
 
 from __future__ import annotations
 
@@ -27,16 +27,31 @@ class VideoHead(nn.Module):
     def __init__(self, profile: str) -> None:
         """Keep head capacities comparable without flattening all spatial tokens."""
         super().__init__()
-        if profile not in ("pooled", "temporal"):
+        if profile not in ("pooled", "temporal", "spatial", "full"):
             raise ValueError("Unsupported profile.")
         self.profile = profile
-        width = 64 if profile == "pooled" else 32
+        width = {"pooled": 64, "temporal": 32, "spatial": 48, "full": 16}[profile]
         self.token = nn.Linear(200, width)
-        self.output = nn.Linear(width if profile == "pooled" else 4 * width, 64, bias=False)
+        if profile in ("spatial", "full"):
+            regions = 2 if profile == "spatial" else 3
+            self.channel_mix = nn.Linear(64, regions, bias=False)
+            inputs = regions * width * (4 if profile == "full" else 1)
+        else:
+            inputs = width if profile == "pooled" else 4 * width
+        self.output = nn.Linear(inputs, 64, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map centered features to a shared retrieval embedding."""
-        return self.output(torch.nn.functional.gelu(self.token(x)).flatten(1))
+        expected = {"pooled": (200,), "temporal": (4, 200), "spatial": (64, 200), "full": (256, 200)}
+        if tuple(x.shape[1:]) != expected[self.profile]:
+            raise ValueError(f"Unexpected {self.profile} feature shape: {tuple(x.shape)}")
+        z = torch.nn.functional.gelu(self.token(x))
+        if self.profile == "spatial":
+            z = self.channel_mix(z.transpose(1, 2)).transpose(1, 2)
+        elif self.profile == "full":
+            z = z.reshape(-1, 64, 4, 16).permute(0, 2, 3, 1)
+            z = self.channel_mix(z).permute(0, 3, 1, 2)
+        return self.output(z.flatten(1))
 
 
 def center_bank(bank: dict, mode: str) -> tuple[dict, dict, list]:
@@ -82,12 +97,19 @@ def geometry(bank: dict) -> dict:
     return output
 
 
-def extract_banks(raw: dict, checkpoint: Path, device: str, batch_size: int, output: Path) -> tuple[dict, float]:
+def extract_banks(
+    raw: dict,
+    checkpoint: Path,
+    device: str,
+    batch_size: int,
+    output: Path,
+    profiles: tuple[str, ...] = ("pooled", "temporal"),
+) -> tuple[dict, float]:
     """Extract both readouts in one frozen pass with original LaBraM signal scaling."""
     model = ContrastiveLabram("pretrained", checkpoint, False).to(device).eval()
     model.requires_grad_(False)
     extractor = TokenExtractor(model).eval()
-    banks = {p: {s: {} for s in raw} for p in ("pooled", "temporal")}
+    banks = {p: {s: {} for s in raw} for p in profiles}
     indices = []
     with torch.inference_mode():
         for split, values in raw.items():
@@ -125,6 +147,8 @@ def run_video_projection(
     seed: int = 42,
     batch_size: int = 16,
     centerings: tuple[str, ...] = ("global", "participant"),
+    profiles: tuple[str, ...] = ("pooled", "temporal"),
+    diagnostics_only: bool = False,
 ) -> dict:
     """Run fixed geometry ablations followed by matched frozen-feature contrastive heads."""
     if min(epochs, steps_per_epoch, batch_size) < 1 or pairs < 2:
@@ -137,6 +161,8 @@ def run_video_projection(
         raise ValueError("Invalid optimization settings.")
     if not centerings or len(set(centerings)) != len(centerings) or set(centerings) - {"none", "global", "participant"}:
         raise ValueError("Invalid centering profiles.")
+    if not profiles or len(set(profiles)) != len(profiles) or set(profiles) - {"pooled", "temporal", "spatial", "full"}:
+        raise ValueError("Invalid readout profiles.")
     cache, run = cache.resolve(), run.resolve()
     reference, galleries, windows = load_reference(cache, run)
     raw, _ = load_bank(cache, run, windows, standardize=False)
@@ -148,7 +174,7 @@ def run_video_projection(
     pd.DataFrame(
         [dict(step=i, first=a, second=b, starts=json.dumps(t), rotation=r) for i, (a, b, t, r) in enumerate(schedule)]
     ).to_csv(output / "schedule.csv", index=False)
-    banks, reconstruction = extract_banks(raw, checkpoint, device, batch_size, output)
+    banks, reconstruction = extract_banks(raw, checkpoint, device, batch_size, output, profiles)
     del raw
     diagnostics, summaries, comparison = {}, {}, []
     for profile, original in banks.items():
@@ -172,7 +198,7 @@ def run_video_projection(
                 calibration_moments=common if mode == "participant" else [],
                 center_fit="matched training moments per person" if mode == "participant" else "all training windows",
             )
-            if mode not in centerings:
+            if diagnostics_only or mode not in centerings:
                 continue
             torch.manual_seed(seed)
             initial = VideoHead(profile).to(device)
@@ -252,8 +278,19 @@ def run_video_projection(
         learning_rate=learning_rate,
         weight_decay=weight_decay,
         centerings=centerings,
-        training_person_windows=len(banks["pooled"]["train"]),
-        validation_person_windows=len(banks["pooled"]["validation"]),
+        profiles=profiles,
+        diagnostics_only=diagnostics_only,
+        readouts={
+            p: {
+                "shape": list(next(iter(banks[p]["train"].values())).shape),
+                "head_parameters": sum(x.numel() for x in VideoHead(p).parameters()),
+            }
+            for p in profiles
+        },
+        direct_similarity="Flatten corresponding token positions then global L2 normalization; no cross-channel search",
+        structured_head="Shared token compression then signed learned channel mixtures; full preserves four time bins",
+        training_person_windows=len(banks[profiles[0]]["train"]),
+        validation_person_windows=len(banks[profiles[0]]["validation"]),
         reserved_people_evaluated=False,
         backbone_frozen=True,
         input="original microvolts divided by100 once",

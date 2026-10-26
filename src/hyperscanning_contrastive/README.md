@@ -1084,3 +1084,31 @@ centers, saved calibration times in the summary, training schedule/census, origi
 `true/history.csv`, `misaligned/history.csv`, best/last heads and learning curves. Cosine diagnostics retain the
 shared evaluator's `correlation` field names but are embedding similarities, not EEG waveform correlations.
 Report head gains relative to the corresponding centered direct baseline, as well as raw waveform/CorrCA.
+
+### Video spatial and full-token extension
+
+`video-projection --video-readouts spatial full` extends the same saved video0 experiment with spatial and full
+readouts. Existing invocations still default to pooled/temporal and retain their head architecture. The dedicated
+CPU wrapper is `hpc/video_spatial_projection.lsf`, requiring CACHE and RUN (the original video-baseline directory).
+Copy this Git-ignored wrapper explicitly. It runs direct diagnostics and matched heads by default. Set
+`DIAGNOSTICS_ONLY=1` (CLI `--diagnostics-only`) to extract features, fit centering means and score direct retrieval
+without creating optimizers or training checkpoints. No existing run is overwritten.
+
+Spatial features average time before frozen fc_norm, giving64×200. Full features apply frozen fc_norm per token,
+retaining256×200 in channel-major/time-minor order. Direct retrieval flattens corresponding positions and uses
+cosine after centering and global L2 normalization. It does not search across electrodes or time positions.
+Participant and global centering are position-specific, training-only, with the same matched calibration moments.
+Full features consume about137MB for667 windows as float32, excluding temporary arrays and other readouts.
+
+Spatial head: shared token200→48 GELU, learned signed64→2 channel mixtures, flatten2×48→64 output (15,920 params).
+Full head: shared token200→16 GELU, signed64→3 channel mixtures shared across time/features, retain3×4×16
+ordered values, final192→64 output (15,696 params). This allows learned combinations of electrodes in a common
+embedding without a millions-parameter flattened MLP. Both viewers use the same weights; this is not an arbitrary
+pair-conditioned asymmetric alignment or cross-attention model. Heads operate on contextual transformer tokens,
+not independent local electrode waveforms. Token ordering has an explicit einsum-equivalence regression check.
+
+Learning settings, original galleries, saved schedule, controls and normalization remain as in the preceding
+projection experiment. Full-token direct gains test spatial information accessibility; head gains must beat their
+own centered direct baseline and the misaligned arm on held-time data. Maximum validation MRR still selects
+checkpoints, so selected gains across variants remain exploratory. `projection.json` now records requested readouts,
+feature shapes, parameter counts and diagnostics-only status; per-profile folders keep the same output layout.
