@@ -187,3 +187,11 @@ No nonfinite recordings or exact duplicate signals were found. Splits remain una
 It uses the portable verified 200Hz cache rather than reopening native 256Hz recordings, retaining all temporal
 samples. Tiny neural-network fitting and 8/16s sensitivity analyses remain later checks. See README for the exact
 participant reservation, temporal split, galleries, covariance weighting, outputs, and limitations.
+
+## Frozen representation comparison
+
+`video-labram` now reuses a completed `video-baseline` run's exact gallery and split manifests. It extracts
+original pooled frozen LaBraM features and compares cosine retrieval with saved waveform/CorrCA scores.
+No training, centering, projection, new splits or reserved-person evaluation occurs. See README and the CPU
+`hpc/video_labram.lsf` wrapper. This implements the frozen-LaBraM comparison portion of Stage 2; contrastive
+training and the small spatial-temporal CNN are still subsequent steps.

@@ -15,6 +15,7 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-labram",
             "video-baseline",
             "video-audit",
             "video-prepare",
@@ -102,7 +103,26 @@ def main() -> None:
     )
     parser.add_argument("--corrca-components", type=int, default=3)
     parser.add_argument("--corrca-shrinkage", type=float, default=0.1)
+    parser.add_argument("--inference-batch-size", type=int, default=16)
     args = parser.parse_args()
+    if args.command == "video-labram":
+        from .video_labram import run_video_labram
+
+        if args.cache is None or args.run is None:
+            parser.error("video-labram requires --cache and --run")
+        print(
+            run_video_labram(
+                args.cache,
+                args.run,
+                args.output,
+                args.checkpoint,
+                args.initialization,
+                args.device,
+                args.inference_batch_size,
+                args.seed,
+            )
+        )
+        return
     if args.command == "video-baseline":
         from .video_baseline import run_video_baseline
 

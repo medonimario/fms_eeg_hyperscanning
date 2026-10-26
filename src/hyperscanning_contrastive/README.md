@@ -979,3 +979,27 @@ equally after averaging available partners. Pair scores are dependent; no signif
 Chance K=4 top1=0.25 and MRR=0.520833. The four-second split gap does not independently verify the support of
 upstream zero-phase filtering; later use a wider-gap sensitivity check. These are fixed pilot settings, not a
 completed test evaluation or a no-noise versus babble comparison.
+
+### Video frozen-LaBraM comparison
+
+Run `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive video-labram --cache <video-cache> --run <completed-video-baseline> --output <new-run> --device cpu`.
+HPC: `CACHE=<video-cache> RUN=<completed-video-baseline> bsub < src/hyperscanning_contrastive/hpc/video_labram.lsf`.
+Copy the ignored HPC wrapper explicitly when deploying. It defaults to pretrained weights at
+`models/labram-base.pth`; override with `CHECKPOINT` or CLI `--checkpoint`.
+
+This is frozen representation evaluation, not contrastive training. It verifies the reference cache, saved
+split/gallery/checksum manifests, and only reads eligible development-person video0 windows used in those
+exact galleries. No new split or candidate sampling occurs. Reserved people are not encoded. Each unique
+window is encoded once in eval/inference mode, using the established microvolt-to-model divisor of 100.
+Original pooled LaBraM features are L2-normalized for cosine retrieval. No projection head, augmentations,
+feature mean fitting, temperature, or optimizer is used. `--inference-batch-size` (default 16) controls memory
+only; it does not change the four-candidate retrieval task. `--initialization random` never reads/hashes
+pretrained weights, and can be used later as a matched architecture control.
+
+Outputs include `labram.json`, exact copies of the reference split/gallery manifests, pooled features with
+window identities, per-pair and per-person metrics, and combined `comparison.csv`, `comparison.png` and
+`comparison.pdf`. The plots compare top1 and MRR across waveform, CorrCA, misaligned-fit CorrCA and LaBraM.
+Waveform correlation and embedding cosine magnitudes are different quantities, so they are not combined into
+a common similarity-margin plot. Both retrieval directions are averaged per pair, then incident pairs per
+person, then people equally, matching the baseline. All outputs remain exploratory and dependent across pairs.
+The immediate question is whether frozen LaBraM retains shared timing information detectable in raw waveforms.
