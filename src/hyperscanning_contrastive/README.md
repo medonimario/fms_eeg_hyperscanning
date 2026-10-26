@@ -1003,3 +1003,41 @@ Waveform correlation and embedding cosine magnitudes are different quantities, s
 a common similarity-margin plot. Both retrieval directions are averaged per pair, then incident pairs per
 person, then people equally, matching the baseline. All outputs remain exploratory and dependent across pairs.
 The immediate question is whether frozen LaBraM retains shared timing information detectable in raw waveforms.
+
+### Video CNN contrastive pilot
+
+Run `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive video-cnn --cache <video-cache> --run <completed-video-baseline> --output <new-run> --device cpu`.
+The reference is the original CorrCA `video-baseline` run, not `video-labram`. Submit the small CPU model with
+`CACHE=<cache> RUN=<baseline> bsub < src/hyperscanning_contrastive/hpc/video_cnn.lsf`. Copy the ignored wrapper
+explicitly. CLI `--device cuda` is also supported when executing in a separately allocated GPU job.
+
+The shared encoder mixes 64 electrodes into 16 spatial channels, applies two temporal convolutions (32 channels),
+retains eight ordered temporal bins, and projects to 64 dimensions. It has no pretrained weights or batch norm.
+Each channel is demeaned within each window; global channel RMS scales are fitted using training windows only
+and saved for reuse. No participant-specific or validation-fitted normalization is used.
+
+Default training is 20 epochs ×100 updates, K=8 distinct common training moments for two solo viewers per update
+(16 EEG inputs, seven negatives per query), symmetric InfoNCE at temperature .5, AdamW LR .001/decay .01, and
+maximum gradient norm 5. Viewer pairs with fewer than K common moments are excluded and counted. Eligible viewer
+pairs are sampled uniformly, then moments without replacement within an update; updates may revisit windows.
+Adjacent nonoverlapping training windows are allowed. The saved K=4 validation galleries retain their original
+8s spacing. `schedule.csv`, `training_pair_census.csv` and per-epoch unique-window coverage quantify usage.
+
+Both true and misaligned arms start from identical weights and use the exact same schedule and input windows.
+The control applies a nonzero circular rotation to the selected target windows at each update. Its false pairing
+can change as batches change; it is a stochastic misalignment control, not a fixed global false correspondence.
+Whole windows remain intact; no samples are wrapped inside windows. Validation always uses the true correspondence.
+A separate disposable copy first attempts to fit the first training batch for 200 updates with no weight decay.
+It must reach at least95% bidirectional top1 or the experiment stops with `tiny.json`/`tiny_history.csv` for diagnosis.
+Those fitted weights never initialize the main experiment.
+
+Settings: `--pairs`, `--epochs`, `--steps-per-epoch`, `--cnn-temperature`, `--cnn-lr`, `--cnn-weight-decay`,
+`--seed`, `--tiny-steps`; wrapper equivalents PAIRS/EPOCHS/STEPS_PER_EPOCH/TEMPERATURE/LEARNING_RATE/WEIGHT_DECAY/
+SEED/TINY_STEPS. Start with the defaults; do not tune repeatedly on the short held-out movie block.
+
+Each arm saves epoch-zero metrics, objective loss, fixed true train/validation gallery losses and retrieval,
+coverage, best and last weights. Maximum validation MRR selects the best epoch (earliest on ties, including zero).
+The control gets the same selection rule. Report final as well as selected performance: validation selection is
+optimistic and there is no independent test here. `cnn.json` contains reference baseline metrics and both arms;
+`learning_curves.png/pdf` display loss and retrieval. Pairwise observations are dependent; this is an engineering
+pilot, not a significance test. Reserved people and the guard are never passed to the CNN.

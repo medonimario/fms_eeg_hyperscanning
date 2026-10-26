@@ -195,3 +195,13 @@ original pooled frozen LaBraM features and compares cosine retrieval with saved 
 No training, centering, projection, new splits or reserved-person evaluation occurs. See README and the CPU
 `hpc/video_labram.lsf` wrapper. This implements the frozen-LaBraM comparison portion of Stage 2; contrastive
 training and the small spatial-temporal CNN are still subsequent steps.
+
+## CNN pilot implementation
+
+`video-cnn` implements the compact task-trained comparison after the frozen pooled LaBraM pilot. It preserves
+saved identity/time splits and validation galleries. Training uses two viewers and K=8 common moments; unlike
+validation, adjacent nonoverlapping training moments are allowed. The matched control rotates selected target
+windows per update, preserving exact inputs but creating stochastic false pairings rather than a global fixed
+mapping. A disposable tiny-set fit precedes both fresh-initialized arms. See README for architecture, scale fitting,
+optimization, checkpoint selection and coverage outputs. Multi-seed confirmation and wider held-time blocks remain
+necessary before interpreting improvements as reliable generalization.

@@ -15,6 +15,7 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-cnn",
             "video-labram",
             "video-baseline",
             "video-audit",
@@ -104,7 +105,33 @@ def main() -> None:
     parser.add_argument("--corrca-components", type=int, default=3)
     parser.add_argument("--corrca-shrinkage", type=float, default=0.1)
     parser.add_argument("--inference-batch-size", type=int, default=16)
+    parser.add_argument("--cnn-temperature", type=float, default=0.5)
+    parser.add_argument("--cnn-lr", type=float, default=0.001)
+    parser.add_argument("--cnn-weight-decay", type=float, default=0.01)
+    parser.add_argument("--tiny-steps", type=int, default=200)
     args = parser.parse_args()
+    if args.command == "video-cnn":
+        from .video_cnn import run_video_cnn
+
+        if args.cache is None or args.run is None:
+            parser.error("video-cnn requires --cache and --run pointing to video-baseline")
+        print(
+            run_video_cnn(
+                args.cache,
+                args.run,
+                args.output,
+                args.device,
+                args.epochs,
+                args.steps_per_epoch,
+                args.pairs,
+                args.cnn_temperature,
+                args.cnn_lr,
+                args.cnn_weight_decay,
+                args.seed,
+                args.tiny_steps,
+            )
+        )
+        return
     if args.command == "video-labram":
         from .video_labram import run_video_labram
 
