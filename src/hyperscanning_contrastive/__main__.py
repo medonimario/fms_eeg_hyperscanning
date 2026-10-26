@@ -15,6 +15,7 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-projection",
             "video-cnn",
             "video-labram",
             "video-baseline",
@@ -109,7 +110,37 @@ def main() -> None:
     parser.add_argument("--cnn-lr", type=float, default=0.001)
     parser.add_argument("--cnn-weight-decay", type=float, default=0.01)
     parser.add_argument("--tiny-steps", type=int, default=200)
+    parser.add_argument("--video-head-lr", type=float, default=0.0001)
+    parser.add_argument("--video-temperature", type=float, default=0.5)
+    parser.add_argument("--video-weight-decay", type=float, default=0.01)
+    parser.add_argument(
+        "--centerings", nargs="+", choices=("none", "global", "participant"), default=["global", "participant"]
+    )
     args = parser.parse_args()
+    if args.command == "video-projection":
+        from .video_projection import run_video_projection
+
+        if args.cache is None or args.run is None:
+            parser.error("video-projection requires --cache and --run pointing to video-baseline")
+        print(
+            run_video_projection(
+                args.cache,
+                args.run,
+                args.output,
+                args.checkpoint,
+                args.device,
+                args.epochs,
+                args.steps_per_epoch,
+                args.pairs,
+                args.video_temperature,
+                args.video_head_lr,
+                args.video_weight_decay,
+                args.seed,
+                args.inference_batch_size,
+                tuple(args.centerings),
+            )
+        )
+        return
     if args.command == "video-cnn":
         from .video_cnn import run_video_cnn
 

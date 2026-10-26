@@ -42,7 +42,7 @@ class VideoCNN(nn.Module):
         return self.network(x)
 
 
-def load_bank(cache: Path, run: Path, windows: pd.DataFrame) -> tuple[dict, np.ndarray]:
+def load_bank(cache: Path, run: Path, windows: pd.DataFrame, standardize: bool = True) -> tuple[dict, np.ndarray]:
     """Load eligible development windows only and fit channel scales on training samples."""
     people = pd.read_csv(run / "participant_splits.csv")
     dev = set(people.loc[(people.split == "development") & (people.condition == "solo"), "participant_id"])
@@ -69,10 +69,13 @@ def load_bank(cache: Path, run: Path, windows: pd.DataFrame) -> tuple[dict, np.n
             x = np.array(signal[:, row.cache_start : row.cache_stop])
             if x.shape != (64, 800) or not np.isfinite(x).all():
                 raise ValueError("Invalid EEG window.")
-            x -= x.mean(axis=1, keepdims=True)
+            if standardize:
+                x -= x.mean(axis=1, keepdims=True)
             bank[row.time_split][(person, row.cache_start)] = x
     if not bank["train"]:
         raise ValueError("No training windows.")
+    if not standardize:
+        return bank, np.ones(64, dtype=np.float32)
     scale = np.sqrt(np.mean([np.mean(x.astype(np.float64) ** 2, axis=1) for x in bank["train"].values()], axis=0))
     scale = np.maximum(scale, 1e-6).astype(np.float32)
     return {s: {k: x / scale[:, None] for k, x in values.items()} for s, values in bank.items()}, scale

@@ -1041,3 +1041,46 @@ The control gets the same selection rule. Report final as well as selected perfo
 optimistic and there is no independent test here. `cnn.json` contains reference baseline metrics and both arms;
 `learning_curves.png/pdf` display loss and retrieval. Pairwise observations are dependent; this is an engineering
 pilot, not a significance test. Reserved people and the guard are never passed to the CNN.
+
+### Video LaBraM geometry and projection experiment
+
+Run `PYTHONPATH=src OMP_NUM_THREADS=1 python -m hyperscanning_contrastive video-projection --cache <video-cache> --run <completed-video-baseline> --output <new-run> --device cpu`.
+HPC: `CACHE=<cache> RUN=<baseline> bsub < src/hyperscanning_contrastive/hpc/video_projection.lsf`.
+Copy the Git-ignored wrapper explicitly. The reference is the original CorrCA baseline, not CNN or video-labram.
+
+Frozen pretrained LaBraM extracts all eligible development training/validation windows once, retaining original
+microvolt signals and its /100 model scaling. It does not use CNN channel normalization. The existing token
+extractor checks pooled-output reconstruction. Readouts are original pooled200 features and four temporal200
+features (channels averaged, frozen fc_norm applied per temporal position). Spatial/full-token heads are deferred.
+
+Direct cosine retrieval is evaluated for raw, global-centered and participant-centered features for both
+readouts; temporal direct retrieval concatenates the four centered tokens then L2-normalizes. Global means are
+window-weighted over all training windows. Participant means use identical training moments common to every
+development viewer (minimum4 required). The saved per-person means are applied unchanged to validation: this
+is a calibrated seen-person variant, not calibration-free unseen-person evaluation. Means for temporal features
+are position-specific. No centering statistics use validation. Geometry diagnostics compare same-person/different-
+time and different-person/same-time cosine descriptively; these comparisons do not isolate identity causally.
+
+Default training runs pooled/temporal × global/participant centering, each with matched true and misaligned arms.
+Use `--centerings global` to limit training or `--centerings none global participant` to include raw-feature heads;
+all direct geometry diagnostics still run. Each profile starts from the same weights across centering variants
+and both arms. Pooled head:200→64 GELU→64. Temporal head:shared200→32 GELU on each token, concatenate in time
+order,128→64. Capacities are similar but not identical. There is no backbone adaptation or new token attention.
+
+Default LR1e-4, temperature.5, AdamW decay.01,20epochs×100updates, K8(two people×eight moments). Every setting
+uses one saved schedule. Misaligned batches rotate whole target windows with no fixed points, preserving exact
+inputs; false correspondences vary between updates. Validation uses the original K4 galleries. Gradient norm
+is capped at5. Maximum validation MRR selects checkpoints including epoch0; earliest ties win. Comparing many
+selected variants is exploratory, not evidence from an independent test. This experiment has no tiny-fit gate;
+initial, training, validation, selected and final metrics expose optimization failures and overfitting.
+
+Flags: `--video-head-lr`, `--video-temperature`, `--video-weight-decay`, `--centerings`, `--pairs`, `--epochs`,
+`--steps-per-epoch`, `--seed`, `--inference-batch-size`. Wrapper counterparts: LEARNING_RATE, TEMPERATURE,
+WEIGHT_DECAY, CENTERINGS, PAIRS, EPOCHS, STEPS_PER_EPOCH, SEED, INFERENCE_BATCH_SIZE. The batch-size flag affects
+frozen extraction memory only. `--device cuda` supports separately allocated GPU execution.
+
+Outputs: `projection.json`, `comparison.csv/png/pdf`, raw pooled/temporal feature arrays with window identities,
+centers, saved calibration times in the summary, training schedule/census, original manifests, and per-experiment
+`true/history.csv`, `misaligned/history.csv`, best/last heads and learning curves. Cosine diagnostics retain the
+shared evaluator's `correlation` field names but are embedding similarities, not EEG waveform correlations.
+Report head gains relative to the corresponding centered direct baseline, as well as raw waveform/CorrCA.

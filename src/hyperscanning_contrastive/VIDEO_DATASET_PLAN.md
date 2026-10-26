@@ -205,3 +205,12 @@ windows per update, preserving exact inputs but creating stochastic false pairin
 mapping. A disposable tiny-set fit precedes both fresh-initialized arms. See README for architecture, scale fitting,
 optimization, checkpoint selection and coverage outputs. Multi-seed confirmation and wider held-time blocks remain
 necessary before interpreting improvements as reliable generalization.
+
+## LaBraM projection and geometry experiment
+
+After CNN diagnostics, the main path returns to LaBraM via `video-projection`: training-only global and calibrated
+participant centering, direct retrieval diagnostics, then compact pooled-versus-temporal shared contrastive heads.
+Both readouts use the frozen pretrained backbone. All variants share saved splits/galleries and training schedules.
+Participant means use common training movie moments; this must remain explicitly labelled as calibration.
+Temporal tokens retain ordered time positions without flattening the full spatial grid. See README for exact
+capacity, normalization, controls and outputs. Full-token heads and backbone adaptation remain subsequent options.
