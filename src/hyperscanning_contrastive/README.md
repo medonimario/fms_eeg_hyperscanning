@@ -1112,3 +1112,30 @@ projection experiment. Full-token direct gains test spatial information accessib
 own centered direct baseline and the misaligned arm on held-time data. Maximum validation MRR still selects
 checkpoints, so selected gains across variants remain exploratory. `projection.json` now records requested readouts,
 feature shapes, parameter counts and diagnostics-only status; per-profile folders keep the same output layout.
+
+### Separate movie experiments (combined noise)
+
+Run `video-individual --cache <cache> --run <original-video0-baseline> --output <new-directory> --video-id 3 --video-noise combined --video-readouts spatial full` through the usual Python module entry point. The CPU job-array wrapper
+`hpc/video_individual.lsf` launches eight independent jobs for videos3,4,5,6,7,8,9,10. Set CACHE and RUN; output is
+`runs/video_individual_<array-jobid>/video<id>_combined/`. Copy the ignored wrapper explicitly when deploying.
+
+Each job constructs its own waveform/CorrCA baseline and fresh frozen-LaBraM heads. The original participant
+reservation is inherited exactly, including people with missing video0 recordings. Only eligible solo recordings
+of that movie enter the experiment. Combined noise (requested default) includes both low/high viewers; positives
+may cross noise levels and thus target common movie information despite different acoustic backgrounds. Noise
+metadata remains in window manifests. `--video-noise low` or `high` supports separate strata if needed later.
+Video0 is left unchanged: it is no-noise and its results are not a matched noise-condition comparison.
+
+Each movie uses the original protocol: final eight available4s positions form the validation block, one preceding
+window is purged, and earlier positions train. Galleries use four common positions with ≥8s onset spacing; pairs
+without a valid gallery are skipped and recorded. Longer movies therefore provide more distinct training content.
+Differences across movies can reflect content, noise and usable viewers, not intrinsic movie difficulty alone.
+Epoch/update budget, temperature, LR, head architectures and centering are unchanged. Means and CorrCA filters are
+fitted independently per movie; weights/features/statistics are never transferred between movies. Spatial/full
+readouts and global/participant centered heads are the wrapper defaults, matching the preceding experiment.
+
+Each movie folder contains `baseline/baseline.json` and plots plus `projection/projection.json`, comparison plots
+and per-arm curves. The reference loader now reads video identity from baseline metadata (legacy files default to
+video0). Source window identities remain participant×time within an explicitly selected movie. `DIAGNOSTICS_ONLY=1`
+skips LaBraM head training but still computes the per-movie baseline and direct retrieval diagnostics. Use a fresh
+output root on reruns; an output root override is a parent directory, never a shared per-task output directory.

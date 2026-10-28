@@ -64,10 +64,23 @@ def score_gallery(a: np.ndarray, b: np.ndarray) -> dict:
     }
 
 
-def run_video_baseline(cache: Path, output: Path, seed: int = 42, components: int = 3, shrinkage: float = 0.1) -> dict:
+def run_video_baseline(
+    cache: Path,
+    output: Path,
+    seed: int = 42,
+    components: int = 3,
+    shrinkage: float = 0.1,
+    video_id: int = 0,
+    noise_level: str = "none",
+    reference: Path | None = None,
+) -> dict:
     """Run a fixed K=4 held-time pilot without accessing reserved people's signals."""
     if not 0 < shrinkage <= 1 or not 1 <= components <= 64:
         raise ValueError("Require 0 < shrinkage <= 1 and 1..64 components.")
+    if video_id not in (0, 3, 4, 5, 6, 7, 8, 9, 10) or noise_level not in ("none", "low", "high", "combined"):
+        raise ValueError("Unknown video or noise level.")
+    if (video_id == 0) != (noise_level == "none"):
+        raise ValueError("Only video0 is no-noise.")
     cache = cache.resolve()
     metadata = json.loads((cache / "cache.json").read_text())
     if (
@@ -85,13 +98,34 @@ def run_video_baseline(cache: Path, output: Path, seed: int = 42, components: in
     files = pd.read_csv(cache / "files.csv").set_index("array_path")
     people = pd.read_csv(cache / "participants.csv").fillna("")
     rng = np.random.default_rng(seed)
-    people["split"] = "excluded"
-    for _, stratum in people[people.exclusion_reason == ""].groupby(["condition", "counterbalance"]):
-        groups = np.array(sorted(stratum.independence_group.unique()))
-        reserved = set(rng.permutation(groups)[: max(1, int(np.ceil(len(groups) * 0.2)))])
-        for idx, row in stratum.iterrows():
-            people.loc[idx, "split"] = "reserved" if row.independence_group in reserved else "development"
-    selected = windows[windows.eligible & (windows.condition == "solo") & (windows.video_id == 0)].copy()
+    if reference is not None:
+        parent = json.loads((reference / "baseline.json").read_text())
+        if parent["cache_sha256"] != sha256(cache / "cache.json"):
+            raise ValueError("Participant split reference uses a different cache.")
+        for name, digest in parent["artifacts_sha256"].items():
+            if Path(name).name != name or sha256(reference / name) != digest:
+                raise ValueError(f"Reference checksum mismatch: {name}")
+        saved = pd.read_csv(reference / "participant_splits.csv").set_index("participant_id")
+        if saved.index.has_duplicates or set(saved.index) != set(people.participant_id):
+            raise ValueError("Reference participant identities differ.")
+        people["split"] = people.participant_id.map(saved.split)
+    else:
+        people["split"] = "excluded"
+        for _, stratum in people[people.exclusion_reason == ""].groupby(["condition", "counterbalance"]):
+            groups = np.array(sorted(stratum.independence_group.unique()))
+            reserved = set(rng.permutation(groups)[: max(1, int(np.ceil(len(groups) * 0.2)))])
+            for idx, row in stratum.iterrows():
+                people.loc[idx, "split"] = "reserved" if row.independence_group in reserved else "development"
+    selected = windows[
+        windows.eligible
+        & (windows.condition == "solo")
+        & (windows.video_id == video_id)
+        & (
+            windows.noise_level.isin(["low", "high"])
+            if noise_level == "combined"
+            else windows.noise_level == noise_level
+        )
+    ].copy()
     moments = sorted(selected.cache_start.unique())
     if len(moments) < 18:
         raise ValueError("Need at least 18 usable movie moments for this fixed pilot.")
@@ -177,7 +211,10 @@ def run_video_baseline(cache: Path, output: Path, seed: int = 42, components: in
     person_scores.to_csv(output / "person_metrics.csv", index=False)
     means = person_scores.groupby(["split", "model"])[metrics].mean()
     report = {
-        "scope": "Solo video0 held-time engineering pilot; no significance test",
+        "scope": f"Solo video{video_id} {noise_level}-noise held-time pilot; no significance test",
+        "video_id": video_id,
+        "noise_level": noise_level,
+        "participant_reference_sha256": sha256(reference / "baseline.json") if reference else None,
         "cache_sha256": sha256(cache / "cache.json"),
         "seed": seed,
         "components": components,
@@ -197,12 +234,12 @@ def run_video_baseline(cache: Path, output: Path, seed: int = 42, components: in
         "metrics": {split: means.loc[split].to_dict(orient="index") for split in means.index.levels[0]},
         "artifacts_sha256": {p.name: sha256(p) for p in output.iterdir() if p.is_file()},
     }
-    plot_baseline(person_scores, output)
+    plot_baseline(person_scores, output, video_id)
     (output / "baseline.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
 
-def plot_baseline(scores: pd.DataFrame, output: Path) -> None:
+def plot_baseline(scores: pd.DataFrame, output: Path, video_id: int = 0) -> None:
     """Export retrieval and aligned-minus-mismatched correlation diagnostic figures."""
     import matplotlib
 
@@ -220,7 +257,7 @@ def plot_baseline(scores: pd.DataFrame, output: Path) -> None:
         ax.set_title(metric)
         ax.tick_params(axis="x", rotation=20)
     axes[0].legend()
-    fig.suptitle("Solo video0: descriptive pilot (model categories, not training epochs)")
+    fig.suptitle(f"Solo video{video_id}: descriptive pilot (model categories, not training epochs)")
     fig.tight_layout()
     for extension in ("png", "pdf"):
         fig.savefig(output / f"baseline.{extension}", dpi=160)

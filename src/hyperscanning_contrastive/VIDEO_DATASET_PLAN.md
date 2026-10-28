@@ -222,3 +222,12 @@ mixtures. Direct diagnostics compare corresponding token positions; learned head
 without pair-conditioned alignment. All geometry fits and galleries remain identical to the earlier experiment.
 A diagnostics-only mode allows reviewing frozen representation accessibility before head training. The original
 pooled/temporal defaults remain unchanged. See README for exact shapes, head capacities, and HPC invocation.
+
+## Independent movie baseline series
+
+Before joint multi-movie training, run videos3–10 separately using `video-individual`. Per user preference, combine
+low/high-noise solo viewers within each movie and preserve their noise metadata. Reuse video0 participant
+reservations, but fit each movie's centering, CorrCA and LaBraM heads from scratch. Keep the spatial/full head
+architectures unchanged: compression alternatives remain a discussion topic, not an implemented change.
+Final-eight-window validation and a4s boundary gap replicate the pilot protocol. More training moments in longer
+movies and different noise backgrounds limit interpreting accuracy differences as pure movie difficulty.

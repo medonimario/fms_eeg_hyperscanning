@@ -56,6 +56,7 @@ def test_pilot_integrity_and_splits(tmp_path):
                     participant_id=person,
                     condition="solo",
                     video_id=0,
+                    noise_level="none",
                     eligible=True,
                     cache_start=t * 800,
                     cache_stop=(t + 1) * 800,

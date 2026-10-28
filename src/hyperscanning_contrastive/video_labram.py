@@ -39,7 +39,8 @@ def load_reference(cache: Path, run: Path) -> tuple[dict, pd.DataFrame, pd.DataF
     people = pd.read_csv(run / "participant_splits.csv").set_index("participant_id")
     windows = pd.read_csv(run / "window_splits.csv")
     source = pd.read_csv(cache / "windows.csv")
-    source = source[source.video_id == 0].set_index(["participant_id", "cache_start"])
+    video_id = int(report.get("video_id", 0))
+    source = source[source.video_id == video_id].set_index(["participant_id", "cache_start"])
     if source.index.has_duplicates or windows.duplicated(["participant_id", "cache_start"]).any():
         raise ValueError("Duplicate window identity.")
     windows = windows.set_index(["participant_id", "cache_start"])
@@ -63,7 +64,7 @@ def load_reference(cache: Path, run: Path) -> tuple[dict, pd.DataFrame, pd.DataF
                 if (
                     saved.time_split != row.split
                     or not original.eligible
-                    or original.video_id != 0
+                    or original.video_id != video_id
                     or original.condition != "solo"
                     or original.cache_stop != start + 800
                     or saved.array_path != original.array_path

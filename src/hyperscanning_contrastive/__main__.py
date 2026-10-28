@@ -15,6 +15,7 @@ def main() -> None:
         "command",
         choices=(
             "audit",
+            "video-individual",
             "video-projection",
             "video-cnn",
             "video-labram",
@@ -120,7 +121,37 @@ def main() -> None:
         "--video-readouts", nargs="+", choices=("pooled", "temporal", "spatial", "full"), default=["pooled", "temporal"]
     )
     parser.add_argument("--diagnostics-only", action="store_true", help="Video projection: direct geometry only.")
+    parser.add_argument("--video-id", type=int, choices=(3, 4, 5, 6, 7, 8, 9, 10))
+    parser.add_argument("--video-noise", choices=("combined", "low", "high"), default="combined")
     args = parser.parse_args()
+    if args.command == "video-individual":
+        from .video_individual import run_individual_video
+
+        if args.cache is None or args.run is None or args.video_id is None:
+            parser.error("video-individual requires --cache, --run (original baseline) and --video-id")
+        print(
+            run_individual_video(
+                args.cache,
+                args.run,
+                args.output,
+                args.checkpoint,
+                args.video_id,
+                args.video_noise,
+                args.device,
+                args.epochs,
+                args.steps_per_epoch,
+                args.pairs,
+                args.video_temperature,
+                args.video_head_lr,
+                args.video_weight_decay,
+                args.seed,
+                args.inference_batch_size,
+                tuple(args.video_readouts),
+                tuple(args.centerings),
+                args.diagnostics_only,
+            )
+        )
+        return
     if args.command == "video-projection":
         from .video_projection import run_video_projection
 

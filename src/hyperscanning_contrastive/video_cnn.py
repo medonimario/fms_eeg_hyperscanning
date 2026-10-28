@@ -47,7 +47,11 @@ def load_bank(cache: Path, run: Path, windows: pd.DataFrame, standardize: bool =
     people = pd.read_csv(run / "participant_splits.csv")
     dev = set(people.loc[(people.split == "development") & (people.condition == "solo"), "participant_id"])
     source = pd.read_csv(cache / "windows.csv")
-    source = source[(source.video_id == 0) & source.eligible & (source.condition == "solo")]
+    metadata = json.loads((run / "baseline.json").read_text())
+    video_id = int(metadata.get("video_id", 0))
+    source = source[(source.video_id == video_id) & source.eligible & (source.condition == "solo")]
+    if "noise_level" in metadata and metadata["noise_level"] != "combined":
+        source = source[source.noise_level == metadata["noise_level"]]
     source = source.set_index(["participant_id", "cache_start"])
     files = pd.read_csv(cache / "files.csv").dropna(subset=["array_path"]).set_index("array_path")
     bank = {"train": {}, "validation": {}}

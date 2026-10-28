@@ -263,6 +263,8 @@ def run_video_projection(
     plot_summary(pd.DataFrame(comparison), output)
     report = dict(
         scope="Frozen pretrained LaBraM geometry and contrastive readouts; exploratory held-time pilot",
+        video_id=int(reference.get("video_id", 0)),
+        noise_level=reference.get("noise_level", "none"),
         cache_sha256=sha256(cache / "cache.json"),
         reference_sha256=sha256(run / "baseline.json"),
         checkpoint_sha256=sha256(checkpoint),
