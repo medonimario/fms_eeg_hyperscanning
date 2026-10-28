@@ -48,9 +48,15 @@ def test_heads():
 
 
 @pytest.mark.parametrize(
-    "profiles,diagnostics_only", [(("pooled", "temporal"), False), (("spatial", "full"), False), (("full",), True)]
+    "profiles,diagnostics_only,head_type",
+    [
+        (("pooled", "temporal"), False, "compact"),
+        (("spatial", "full"), False, "compact"),
+        (("full",), True, "compact"),
+        (("full",), False, "feature-weights"),
+    ],
 )
-def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only):
+def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only, head_type):
     """Run real heads with synthetic frozen features and unchanged reserved-person exclusion."""
     cache, run = reference
     metadata = json.loads((run / "baseline.json").read_text())
@@ -82,6 +88,7 @@ def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only):
         pairs=4,
         profiles=profiles,
         diagnostics_only=diagnostics_only,
+        head_type=head_type,
     )
     assert len(result["experiments"]) == (0 if diagnostics_only else 2 * len(profiles))
     assert set(result["diagnostics"]) == set(profiles)
@@ -117,3 +124,26 @@ def test_channel_and_time_order():
         else:
             expected = torch.einsum("rc,bctd->brtd", model.channel_mix.weight, z.reshape(2, 64, 4, 16))
         torch.testing.assert_close(model(x), model.output(expected.flatten(1)))
+
+
+def test_feature_weight_identity_and_learning():
+    """Preserve direct cosine at initialization and learn a shared diagonal metric."""
+    from hyperscanning_contrastive.contrastive import contrastive_loss
+
+    torch.manual_seed(42)
+    model = VideoHead("full", "feature-weights")
+    a, b = torch.randn(2, 8, 256, 200)
+    assert sum(p.numel() for p in model.parameters()) == 200
+    torch.testing.assert_close(model(a), a.flatten(1), rtol=0, atol=0)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+    loss = contrastive_loss(model(a), model(b), 0.5)
+    loss.backward()
+    assert torch.isfinite(model.weight_logits.grad).all()
+    assert model.weight_logits.grad.abs().sum() > 0
+    optimizer.step()
+    weights = model.feature_weights()
+    assert (weights > 0).all() and weights.std() > 0
+    torch.testing.assert_close(weights.mean(), torch.tensor(1.0))
+    torch.testing.assert_close(model(a).reshape_as(a), a * weights)
+    with pytest.raises(ValueError, match="full readout"):
+        VideoHead("spatial", "feature-weights")

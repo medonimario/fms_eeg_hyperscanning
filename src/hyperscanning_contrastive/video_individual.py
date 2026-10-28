@@ -25,6 +25,7 @@ def run_individual_video(
     profiles: tuple[str, ...] = ("spatial", "full"),
     centerings: tuple[str, ...] = ("global", "participant"),
     diagnostics_only: bool = False,
+    head_type: str = "compact",
 ) -> dict:
     """Build a movie-specific reference and train fresh heads without sharing movie statistics."""
     if video_id not in (3, 4, 5, 6, 7, 8, 9, 10):
@@ -50,4 +51,5 @@ def run_individual_video(
         centerings,
         profiles,
         diagnostics_only,
+        head_type,
     )

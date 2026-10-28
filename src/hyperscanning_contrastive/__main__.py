@@ -120,6 +120,7 @@ def main() -> None:
     parser.add_argument(
         "--video-readouts", nargs="+", choices=("pooled", "temporal", "spatial", "full"), default=["pooled", "temporal"]
     )
+    parser.add_argument("--video-head-type", choices=("compact", "feature-weights"), default="compact")
     parser.add_argument("--diagnostics-only", action="store_true", help="Video projection: direct geometry only.")
     parser.add_argument("--video-id", type=int, choices=(3, 4, 5, 6, 7, 8, 9, 10))
     parser.add_argument("--video-noise", choices=("combined", "low", "high"), default="combined")
@@ -149,6 +150,7 @@ def main() -> None:
                 tuple(args.video_readouts),
                 tuple(args.centerings),
                 args.diagnostics_only,
+                args.video_head_type,
             )
         )
         return
@@ -175,6 +177,7 @@ def main() -> None:
                 tuple(args.centerings),
                 tuple(args.video_readouts),
                 args.diagnostics_only,
+                args.video_head_type,
             )
         )
         return

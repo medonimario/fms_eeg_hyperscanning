@@ -24,12 +24,20 @@ from .video_labram import load_reference
 class VideoHead(nn.Module):
     """Small nonlinear pooled head or token-shared temporal head with ordered concatenation."""
 
-    def __init__(self, profile: str) -> None:
+    def __init__(self, profile: str, head_type: str = "compact") -> None:
         """Keep head capacities comparable without flattening all spatial tokens."""
         super().__init__()
         if profile not in ("pooled", "temporal", "spatial", "full"):
             raise ValueError("Unsupported profile.")
         self.profile = profile
+        self.head_type = head_type
+        if head_type not in ("compact", "feature-weights"):
+            raise ValueError("Unsupported head type.")
+        if head_type == "feature-weights":
+            if profile != "full":
+                raise ValueError("Feature weighting requires the full readout.")
+            self.weight_logits = nn.Parameter(torch.zeros(200))
+            return
         width = {"pooled": 64, "temporal": 32, "spatial": 48, "full": 16}[profile]
         self.token = nn.Linear(200, width)
         if profile in ("spatial", "full"):
@@ -40,11 +48,17 @@ class VideoHead(nn.Module):
             inputs = width if profile == "pooled" else 4 * width
         self.output = nn.Linear(inputs, 64, bias=False)
 
+    def feature_weights(self) -> torch.Tensor:
+        """Return positive shared weights with mean one; zero logits give the identity."""
+        return torch.softmax(self.weight_logits, dim=0) * 200
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map centered features to a shared retrieval embedding."""
         expected = {"pooled": (200,), "temporal": (4, 200), "spatial": (64, 200), "full": (256, 200)}
         if tuple(x.shape[1:]) != expected[self.profile]:
             raise ValueError(f"Unexpected {self.profile} feature shape: {tuple(x.shape)}")
+        if self.head_type == "feature-weights":
+            return (x * self.feature_weights()).flatten(1)
         z = torch.nn.functional.gelu(self.token(x))
         if self.profile == "spatial":
             z = self.channel_mix(z.transpose(1, 2)).transpose(1, 2)
@@ -149,6 +163,7 @@ def run_video_projection(
     centerings: tuple[str, ...] = ("global", "participant"),
     profiles: tuple[str, ...] = ("pooled", "temporal"),
     diagnostics_only: bool = False,
+    head_type: str = "compact",
 ) -> dict:
     """Run fixed geometry ablations followed by matched frozen-feature contrastive heads."""
     if min(epochs, steps_per_epoch, batch_size) < 1 or pairs < 2:
@@ -163,6 +178,10 @@ def run_video_projection(
         raise ValueError("Invalid centering profiles.")
     if not profiles or len(set(profiles)) != len(profiles) or set(profiles) - {"pooled", "temporal", "spatial", "full"}:
         raise ValueError("Invalid readout profiles.")
+    if head_type not in ("compact", "feature-weights"):
+        raise ValueError("Invalid head type.")
+    if head_type == "feature-weights" and profiles != ("full",):
+        raise ValueError("Feature weighting requires --video-readouts full.")
     cache, run = cache.resolve(), run.resolve()
     reference, galleries, windows = load_reference(cache, run)
     raw, _ = load_bank(cache, run, windows, standardize=False)
@@ -201,7 +220,7 @@ def run_video_projection(
             if diagnostics_only or mode not in centerings:
                 continue
             torch.manual_seed(seed)
-            initial = VideoHead(profile).to(device)
+            initial = VideoHead(profile, head_type).to(device)
             torch.save(initial.state_dict(), folder / "initial.pt")
             histories, arms = {}, {}
             for arm in ("true", "misaligned"):
@@ -236,15 +255,32 @@ def run_video_projection(
                         metrics, people = evaluate(
                             model, centered[split], galleries[galleries.split == split], device, temperature
                         )
+                        if epoch == 0 and head_type == "feature-weights":
+                            for metric in ("top1", "mrr", "loss"):
+                                if not np.isclose(metrics[metric], scores[split][metric], atol=1e-7, rtol=1e-6):
+                                    raise ValueError("Identity weighting does not reproduce direct retrieval.")
                         row.update({f"{split}_{k}": v for k, v in metrics.items()})
                         if split == "validation" and metrics["mrr"] > best:
                             best, best_epoch = metrics["mrr"], epoch
                             torch.save(model.state_dict(), destination / "best.pt")
                             people.to_csv(destination / "best_validation_people.csv")
+                            if head_type == "feature-weights":
+                                np.save(
+                                    destination / "best_weights.npy", model.feature_weights().detach().cpu().numpy()
+                                )
+                    if head_type == "feature-weights":
+                        weights = model.feature_weights().detach().cpu().numpy()
+                        row.update(
+                            weight_min=float(weights.min()),
+                            weight_max=float(weights.max()),
+                            weight_std=float(weights.std()),
+                        )
                     history.append(row)
                     pd.DataFrame(history).to_csv(destination / "history.csv", index=False)
                     print(f"{label}/{arm} epoch {epoch}: validation MRR={row['validation_mrr']:.4f}", flush=True)
                 torch.save(model.state_dict(), destination / "last.pt")
+                if head_type == "feature-weights":
+                    np.save(destination / "last_weights.npy", model.feature_weights().detach().cpu().numpy())
                 histories[arm] = pd.DataFrame(history)
                 arms[arm] = dict(best_epoch=best_epoch, selected=history[best_epoch], final=history[-1])
                 for split in ("train", "validation"):
@@ -282,15 +318,22 @@ def run_video_projection(
         centerings=centerings,
         profiles=profiles,
         diagnostics_only=diagnostics_only,
+        head_type=head_type,
+        identity_baseline_verified=head_type == "feature-weights" and not diagnostics_only,
+        weighting="200 shared positive weights, 200*softmax(logits); zero initialization; full flattened cosine"
+        if head_type == "feature-weights"
+        else None,
         readouts={
             p: {
                 "shape": list(next(iter(banks[p]["train"].values())).shape),
-                "head_parameters": sum(x.numel() for x in VideoHead(p).parameters()),
+                "head_parameters": sum(x.numel() for x in VideoHead(p, head_type).parameters()),
             }
             for p in profiles
         },
         direct_similarity="Flatten corresponding token positions then global L2 normalization; no cross-channel search",
-        structured_head="Shared token compression then signed learned channel mixtures; full preserves four time bins",
+        structured_head="Shared token compression then signed learned channel mixtures; full preserves four time bins"
+        if head_type == "compact"
+        else "No compression or token mixing; 256x200 output",
         training_person_windows=len(banks[profiles[0]]["train"]),
         validation_person_windows=len(banks[profiles[0]]["validation"]),
         reserved_people_evaluated=False,

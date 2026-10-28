@@ -1139,3 +1139,36 @@ and per-arm curves. The reference loader now reads video identity from baseline 
 video0). Source window identities remain participant×time within an explicitly selected movie. `DIAGNOSTICS_ONLY=1`
 skips LaBraM head training but still computes the per-movie baseline and direct retrieval diagnostics. Use a fresh
 output root on reruns; an output root override is a parent directory, never a shared per-task output directory.
+
+
+### Identity-initialized full-token feature weighting
+
+Use `video-projection --video-head-type feature-weights --video-readouts full --centerings global`
+with the existing movie-specific **baseline/** directory as `--run`. This preserves its exact
+participant/time split and galleries. The compact head remains the default for older commands.
+
+The frozen full readout has shape 256×200. The new head multiplies every token by the same
+200 positive weights, then flattens to 51,200 values; loss/evaluation apply L2 normalization.
+Weights are `200 * softmax(logits)`, with logits initialized to zero, giving weights of one.
+There is no token compression, channel mixing, or cross-token matching. AdamW decay acts on
+logits, pulling toward uniform weights rather than shrinking the output norm. Global centering
+still uses training windows only. Both true and misaligned arms reuse the same sampling schedule.
+Epoch-zero top1/MRR/loss must match direct retrieval or the run fails.
+
+For the video 3 exploratory diagnostic, from the HPC repository root:
+
+```bash
+mkdir -p outputs errors
+CACHE=/work3/s204684/Thesis/data/processed/video_contrastive_prepare_29798701 \
+RUN=runs/video_individual_29840933/video3_combined/baseline \
+  bsub < src/hyperscanning_contrastive/hpc/video_feature_weights.lsf
+```
+
+Copy the Git-ignored wrapper explicitly to HPC. It uses CPU, global centering, 20 epochs,
+100 updates/epoch, 8 candidates/update, temperature 0.5, LR 0.0001 and decay 0.01.
+Existing environment overrides remain available. No cache rebuild is required.
+Outputs go to `runs/video_feature_weights_JOBID/`: `projection.json`, comparison plots,
+`full_global/learning_curves.png` and PDF, and true/misaligned histories and checkpoints.
+Each arm also saves `best_weights.npy` and `last_weights.npy` (200 feature multipliers),
+with min/max/std logged each epoch. Compare held-time retrieval against epoch zero and the
+misaligned arm; a selected validation maximum alone is not evidence of generalization.
