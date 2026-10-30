@@ -54,6 +54,7 @@ def test_heads():
         (("spatial", "full"), False, "compact"),
         (("full",), True, "compact"),
         (("full",), False, "feature-weights"),
+        (("full",), False, "weighting-comparison"),
     ],
 )
 def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only, head_type):
@@ -90,7 +91,9 @@ def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only, 
         diagnostics_only=diagnostics_only,
         head_type=head_type,
     )
-    assert len(result["experiments"]) == (0 if diagnostics_only else 2 * len(profiles))
+    assert len(result["experiments"]) == (
+        0 if diagnostics_only else 2 * len(profiles) * (3 if head_type == "weighting-comparison" else 1)
+    )
     assert set(result["diagnostics"]) == set(profiles)
     if diagnostics_only:
         assert not list((tmp_path / "result").rglob("*.pt"))
@@ -98,6 +101,31 @@ def test_pipeline(reference, tmp_path, monkeypatch, profiles, diagnostics_only, 
     for experiment in result["experiments"].values():
         assert experiment["arms"]["true"]["selected"]["epoch"] in (0, 1)
     assert (tmp_path / "result" / "comparison.png").is_file()
+    if profiles == ("full",) and not diagnostics_only:
+        import pandas as pd
+
+        from hyperscanning_contrastive.data import sha256
+        from hyperscanning_contrastive.video_cnn import load_bank
+        from hyperscanning_contrastive.video_labram import load_reference
+        from hyperscanning_contrastive.video_patch_scores import run_patch_scores
+
+        _, _, windows = load_reference(cache, run)
+        raw, _ = load_bank(cache, run, windows, standardize=False)
+        banks, _ = extract(raw, checkpoint, "cpu", 16, tmp_path, profiles)
+        indices = [(split, p, t) for split, values in banks["full"].items() for p, t in values]
+        folder = tmp_path / "result"
+        np.save(folder / "full_features.npy", np.stack([banks["full"][s][(p, t)] for s, p, t in indices]))
+        pd.DataFrame(indices, columns=["split", "participant_id", "cache_start"]).to_csv(
+            folder / "feature_windows.csv", index=False
+        )
+        for name in ("full_features.npy", "feature_windows.csv"):
+            result["artifacts_sha256"][name] = sha256(folder / name)
+        (folder / "projection.json").write_text(json.dumps(result))
+        scored = run_patch_scores(folder, tmp_path / "scores")
+        assert scored["flattened_reproduction_verified"]
+        (folder / "full_global" / "centers.npz").write_bytes(b"corrupt")
+        with pytest.raises(ValueError, match="mismatched source"):
+            run_patch_scores(folder, tmp_path / "invalid")
 
 
 def test_raw_inputs_preserved(reference):
@@ -147,3 +175,26 @@ def test_feature_weight_identity_and_learning():
     torch.testing.assert_close(model(a).reshape_as(a), a * weights)
     with pytest.raises(ValueError, match="full readout"):
         VideoHead("spatial", "feature-weights")
+
+
+@pytest.mark.parametrize("kind,count", [("channel-weights", 64), ("combined-weights", 264)])
+def test_channel_weight_order(kind, count):
+    """Channel weights repeat across time and combine multiplicatively with feature weights."""
+    model = VideoHead("full", kind)
+    x = torch.randn(4, 256, 200)
+    torch.testing.assert_close(model(x), x.flatten(1), rtol=0, atol=0)
+    assert sum(p.numel() for p in model.parameters()) == count
+    with torch.no_grad():
+        model.channel_logits.copy_(torch.linspace(-1, 1, 64))
+        if kind == "combined-weights":
+            model.weight_logits.copy_(torch.linspace(-0.5, 0.5, 200))
+    expected = x.reshape(4, 64, 4, 200) * model.channel_weights()[None, :, None, None]
+    if kind == "combined-weights":
+        expected = expected * model.feature_weights()
+    torch.testing.assert_close(model(x), expected.flatten(1))
+    from hyperscanning_contrastive.contrastive import contrastive_loss
+
+    loss = contrastive_loss(model(x[:2]), model(x[2:]), 0.5)
+    loss.backward()
+    for parameter in model.parameters():
+        assert torch.isfinite(parameter.grad).all() and parameter.grad.abs().sum() > 0

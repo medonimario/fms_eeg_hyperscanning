@@ -37,8 +37,15 @@ def load_reference(cache: Path, run: Path) -> tuple[dict, pd.DataFrame, pd.DataF
             if Path(name).name != name or sha256(root / name) != digest:
                 raise ValueError(f"Artifact checksum mismatch: {name}")
     people = pd.read_csv(run / "participant_splits.csv").set_index("participant_id")
+    if (
+        "independence_group" in people
+        and people[people.split.isin(["development", "reserved"])].groupby("independence_group").split.nunique().max()
+        > 1
+    ):
+        raise ValueError("Participant reservations split an independence group.")
     windows = pd.read_csv(run / "window_splits.csv")
     source = pd.read_csv(cache / "windows.csv")
+    cohort = report.get("cohort", "solo")
     video_id = int(report.get("video_id", 0))
     source = source[source.video_id == video_id].set_index(["participant_id", "cache_start"])
     if source.index.has_duplicates or windows.duplicated(["participant_id", "cache_start"]).any():
@@ -57,15 +64,19 @@ def load_reference(cache: Path, run: Path) -> tuple[dict, pd.DataFrame, pd.DataF
         ):
             raise ValueError("Invalid four-moment gallery.")
         for person in (row.first, row.second):
-            if people.loc[person, "split"] != "development" or people.loc[person, "condition"] != "solo":
-                raise ValueError("Gallery accesses a reserved or non-solo participant.")
+            if people.loc[person, "split"] != "development" or people.loc[person, "condition"] != cohort:
+                raise ValueError("Gallery accesses a reserved or wrong-cohort participant.")
             for start in starts:
                 saved, original = windows.loc[(person, start)], source.loc[(person, start)]
                 if (
                     saved.time_split != row.split
                     or not original.eligible
                     or original.video_id != video_id
-                    or original.condition != "solo"
+                    or original.condition != cohort
+                    or (
+                        report.get("noise_level", "combined") != "combined"
+                        and original.noise_level != report["noise_level"]
+                    )
                     or original.cache_stop != start + 800
                     or saved.array_path != original.array_path
                     or saved.cache_stop != original.cache_stop

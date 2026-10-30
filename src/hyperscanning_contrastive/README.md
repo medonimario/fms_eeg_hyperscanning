@@ -1172,3 +1172,70 @@ Outputs go to `runs/video_feature_weights_JOBID/`: `projection.json`, comparison
 Each arm also saves `best_weights.npy` and `last_weights.npy` (200 feature multipliers),
 with min/max/std logged each epoch. Compare held-time retrieval against epoch zero and the
 misaligned arm; a selected validation maximum alone is not evidence of generalization.
+
+### Training-free matching-patch retrieval
+
+Run `PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m hyperscanning_contrastive video-patch-scores --run <completed-full-token-projection-run> --output <new-directory>`.
+No EEG cache, checkpoint, encoder pass or training is needed. The source must contain
+`projection.json`, `full_features.npy`, `feature_windows.csv`, `galleries.csv`, and
+`full_global/centers.npz`; their recorded hashes are verified. The saved global center is
+checked against the training-only mean, and flattened top1/MRR must reproduce the source.
+
+Four fixed scores use the same train/validation K=4 galleries and symmetric, tie-averaged
+ranking: flattened cosine, equal mean of matching-patch cosines, maximum matching-patch
+cosine, and mean of the largest eight matching-patch cosines. Patches match electrode and
+one-second offset; there is no cross-channel or cross-time search. Each patch is normalized
+separately for the last three scores. Zero vectors use epsilon 1e-12 and give cosine zero.
+No learned feature weights are applied: this is a direct-scoring ablation.
+
+Outputs: `patch_scores.json`, pair/person/summary CSVs, `comparison.png`/PDF,
+`winning_patches.csv`, and `winning_channels.png`/PDF. Maximum-patch counts distinguish
+aligned versus mismatched candidates and correct versus incorrect retrieved candidates;
+patch and candidate ties split counts fractionally. These are descriptive frequencies,
+not independent observations or statistical significance. Choosing a score on this validation
+block is exploratory. No changes to the original experiment are made.
+
+HPC: `RUN=runs/video_feature_weights_29849374 bsub < src/hyperscanning_contrastive/hpc/video_patch_scores.lsf`
+from the repository root after creating `outputs/` and `errors/`. Copy the ignored wrapper
+explicitly. Default output is `runs/video_patch_scores_JOBID/`.
+
+### Together / low-noise weighting comparison
+
+`video-individual --video-id 3 --video-cohort together --video-noise low --video-readouts full --centerings global --video-head-type weighting-comparison`
+creates a fresh cohort baseline then compares unweighted full-token retrieval with feature
+(200 parameters), channel (64), and combined (264) positive weighting. Channel weights repeat
+across four temporal positions. All tensors retain 256×200 values before flattening and cosine
+normalization; no attention pooling or projection MLP is used. The weights are trained with
+contrastive loss; “direct retrieval” means no additional head after the weighting operation.
+Both weight families are mean-one softmax multipliers initialized to one.
+
+All eligible together viewers can form pairs, including people from different dyads. Reserved
+participants are inherited from `--run` and an independence group cannot cross reservation
+boundaries. Low-noise selection applies to this particular video. Existing defaults remain
+solo and the compact head. All variants share one frozen feature extraction, training-only
+centering, eight-moment batch schedule and four-candidate galleries; each trained variant has
+true and misaligned arms. Epoch zero must reproduce unweighted retrieval. Participant-centering
+diagnostics remain descriptive; only the requested global-centered variants train.
+
+The new baseline fits CorrCA on development training intervals only and includes waveform and
+misaligned-fit CorrCA controls. It shares galleries with every LaBraM variant. The baseline
+report records viewer/window/independence-group counts and gallery pair counts. More pair
+combinations are not additional independent people; cross-cohort differences are descriptive.
+
+From the HPC repository root, with the original baseline available:
+
+```bash
+mkdir -p outputs errors
+CACHE=/work3/s204684/Thesis/data/processed/video_contrastive_prepare_29798701 \
+RUN=runs/video_baseline_29798970 \
+  bsub < src/hyperscanning_contrastive/hpc/video_together_weighting.lsf
+```
+
+Copy this ignored wrapper explicitly. `RUN` can instead point to a completed movie baseline
+that inherited the same participant reservations. Defaults: video 3, 20 epochs, 100 updates
+per epoch, eight candidates, LR .001, temperature .5, decay .01. Override via EPOCHS,
+LEARNING_RATE, TEMPERATURE, WEIGHT_DECAY, etc. The run writes `baseline/baseline.json` plus
+CorrCA plots, and `projection/projection.json` plus comparison plots with waveform/CorrCA
+reference lines. Per-variant curves and true/misaligned histories are under
+`projection/full_global/{feature-weights,channel-weights,combined-weights}/`.
+Best/last multipliers are saved as NPZ files with `feature` and/or `channel` arrays.

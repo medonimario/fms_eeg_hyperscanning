@@ -26,13 +26,20 @@ def run_individual_video(
     centerings: tuple[str, ...] = ("global", "participant"),
     diagnostics_only: bool = False,
     head_type: str = "compact",
+    cohort: str = "solo",
 ) -> dict:
     """Build a movie-specific reference and train fresh heads without sharing movie statistics."""
     if video_id not in (3, 4, 5, 6, 7, 8, 9, 10):
         raise ValueError("Choose another movie: 3,4,5,6,7,8,9,10; preserve existing video0 results.")
     output.mkdir(parents=True, exist_ok=False)
     run_video_baseline(
-        cache, output / "baseline", seed=seed, video_id=video_id, noise_level=noise_level, reference=reference
+        cache,
+        output / "baseline",
+        seed=seed,
+        video_id=video_id,
+        noise_level=noise_level,
+        reference=reference,
+        cohort=cohort,
     )
     return run_video_projection(
         cache,

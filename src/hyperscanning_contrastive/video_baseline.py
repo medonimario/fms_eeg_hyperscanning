@@ -45,7 +45,11 @@ def waveform_features(x: np.ndarray, filters: np.ndarray | None) -> np.ndarray:
 
 def score_gallery(a: np.ndarray, b: np.ndarray) -> dict:
     """Score both directions, averaging metrics over random ordering of tied scores."""
-    similarities = a @ b.T
+    return score_similarities(a @ b.T)
+
+
+def score_similarities(similarities: np.ndarray) -> dict:
+    """Score a square similarity matrix with aligned diagonal and symmetric tie averaging."""
     ranks, top1, reciprocal = [], [], []
     for scores in (similarities, similarities.T):
         correct = np.diag(scores)[:, None]
@@ -60,7 +64,7 @@ def score_gallery(a: np.ndarray, b: np.ndarray) -> dict:
         "mrr": float(np.mean(reciprocal)),
         "mean_rank": float(ranks.mean()),
         "aligned_correlation": float(np.diag(similarities).mean()),
-        "mismatched_correlation": float(similarities[~np.eye(len(a), dtype=bool)].mean()),
+        "mismatched_correlation": float(similarities[~np.eye(len(similarities), dtype=bool)].mean()),
     }
 
 
@@ -73,6 +77,7 @@ def run_video_baseline(
     video_id: int = 0,
     noise_level: str = "none",
     reference: Path | None = None,
+    cohort: str = "solo",
 ) -> dict:
     """Run a fixed K=4 held-time pilot without accessing reserved people's signals."""
     if not 0 < shrinkage <= 1 or not 1 <= components <= 64:
@@ -81,6 +86,8 @@ def run_video_baseline(
         raise ValueError("Unknown video or noise level.")
     if (video_id == 0) != (noise_level == "none"):
         raise ValueError("Only video0 is no-noise.")
+    if cohort not in ("solo", "together"):
+        raise ValueError("Invalid cohort.")
     cache = cache.resolve()
     metadata = json.loads((cache / "cache.json").read_text())
     if (
@@ -116,9 +123,15 @@ def run_video_baseline(
             reserved = set(rng.permutation(groups)[: max(1, int(np.ceil(len(groups) * 0.2)))])
             for idx, row in stratum.iterrows():
                 people.loc[idx, "split"] = "reserved" if row.independence_group in reserved else "development"
+    if (
+        "independence_group" in people
+        and people[people.split.isin(["development", "reserved"])].groupby("independence_group").split.nunique().max()
+        > 1
+    ):
+        raise ValueError("Participant reservations split an independence group.")
     selected = windows[
         windows.eligible
-        & (windows.condition == "solo")
+        & (windows.condition == cohort)
         & (windows.video_id == video_id)
         & (
             windows.noise_level.isin(["low", "high"])
@@ -219,9 +232,17 @@ def run_video_baseline(
         "seed": seed,
         "components": components,
         "shrinkage": shrinkage,
+        "cohort": cohort,
+        "pair_policy": "all eligible distinct viewers, including cross-dyad pairs",
         "sfreq": 200,
         "reserved_people_evaluated": False,
         "development_viewers": len(bank["train"]),
+        "gallery_pair_counts": {s: sum(g["split"] == s for g in galleries) for s in bank},
+        "development_independence_groups": int(
+            people[people.participant_id.isin(bank["train"])].independence_group.nunique()
+        )
+        if "independence_group" in people
+        else None,
         "training_person_windows": sum(map(len, bank["train"].values())),
         "validation_person_windows": sum(map(len, bank["validation"].values())),
         "validation_start_seconds": int(boundary) / 200,

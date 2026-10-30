@@ -31,12 +31,15 @@ class VideoHead(nn.Module):
             raise ValueError("Unsupported profile.")
         self.profile = profile
         self.head_type = head_type
-        if head_type not in ("compact", "feature-weights"):
+        if head_type not in ("compact", "feature-weights", "channel-weights", "combined-weights"):
             raise ValueError("Unsupported head type.")
-        if head_type == "feature-weights":
+        if head_type != "compact":
             if profile != "full":
                 raise ValueError("Feature weighting requires the full readout.")
-            self.weight_logits = nn.Parameter(torch.zeros(200))
+            if head_type in ("feature-weights", "combined-weights"):
+                self.weight_logits = nn.Parameter(torch.zeros(200))
+            if head_type in ("channel-weights", "combined-weights"):
+                self.channel_logits = nn.Parameter(torch.zeros(64))
             return
         width = {"pooled": 64, "temporal": 32, "spatial": 48, "full": 16}[profile]
         self.token = nn.Linear(200, width)
@@ -52,13 +55,31 @@ class VideoHead(nn.Module):
         """Return positive shared weights with mean one; zero logits give the identity."""
         return torch.softmax(self.weight_logits, dim=0) * 200
 
+    def channel_weights(self) -> torch.Tensor:
+        """Return 64 positive channel multipliers shared across all four time positions."""
+        return torch.softmax(self.channel_logits, dim=0) * 64
+
+    def saved_weights(self) -> dict[str, np.ndarray]:
+        """Expose learned multipliers separately for reproducible inspection."""
+        result = {}
+        if hasattr(self, "weight_logits"):
+            result["feature"] = self.feature_weights().detach().cpu().numpy()
+        if hasattr(self, "channel_logits"):
+            result["channel"] = self.channel_weights().detach().cpu().numpy()
+        return result
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map centered features to a shared retrieval embedding."""
         expected = {"pooled": (200,), "temporal": (4, 200), "spatial": (64, 200), "full": (256, 200)}
         if tuple(x.shape[1:]) != expected[self.profile]:
             raise ValueError(f"Unexpected {self.profile} feature shape: {tuple(x.shape)}")
-        if self.head_type == "feature-weights":
-            return (x * self.feature_weights()).flatten(1)
+        if self.head_type != "compact":
+            z = x.reshape(-1, 64, 4, 200)
+            if hasattr(self, "weight_logits"):
+                z = z * self.feature_weights()
+            if hasattr(self, "channel_logits"):
+                z = z * self.channel_weights()[None, :, None, None]
+            return z.flatten(1)
         z = torch.nn.functional.gelu(self.token(x))
         if self.profile == "spatial":
             z = self.channel_mix(z.transpose(1, 2)).transpose(1, 2)
@@ -178,10 +199,15 @@ def run_video_projection(
         raise ValueError("Invalid centering profiles.")
     if not profiles or len(set(profiles)) != len(profiles) or set(profiles) - {"pooled", "temporal", "spatial", "full"}:
         raise ValueError("Invalid readout profiles.")
-    if head_type not in ("compact", "feature-weights"):
+    if head_type not in ("compact", "feature-weights", "channel-weights", "combined-weights", "weighting-comparison"):
         raise ValueError("Invalid head type.")
-    if head_type == "feature-weights" and profiles != ("full",):
+    if head_type != "compact" and profiles != ("full",):
         raise ValueError("Feature weighting requires --video-readouts full.")
+    variants = (
+        ("feature-weights", "channel-weights", "combined-weights")
+        if head_type == "weighting-comparison"
+        else (head_type,)
+    )
     cache, run = cache.resolve(), run.resolve()
     reference, galleries, windows = load_reference(cache, run)
     raw, _ = load_bank(cache, run, windows, standardize=False)
@@ -219,88 +245,103 @@ def run_video_projection(
             )
             if diagnostics_only or mode not in centerings:
                 continue
-            torch.manual_seed(seed)
-            initial = VideoHead(profile, head_type).to(device)
-            torch.save(initial.state_dict(), folder / "initial.pt")
-            histories, arms = {}, {}
-            for arm in ("true", "misaligned"):
-                destination = folder / arm
-                destination.mkdir()
-                model = copy.deepcopy(initial)
-                optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-                history, best, best_epoch, coverage = [], -np.inf, 0, set()
-                for epoch in range(epochs + 1):
-                    losses, used = [], set()
-                    if epoch:
-                        model.train()
-                        for entry in schedule[(epoch - 1) * steps_per_epoch : epoch * steps_per_epoch]:
-                            a, b = batch(centered["train"], entry, device, arm == "misaligned")
-                            loss = contrastive_loss(model(a), model(b), temperature)
-                            if not torch.isfinite(loss):
-                                raise ValueError("Nonfinite loss.")
-                            optimizer.zero_grad()
-                            loss.backward()
-                            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0, error_if_nonfinite=True)
-                            optimizer.step()
-                            losses.append(float(loss.detach()))
-                            used.update((p, t) for p in entry[:2] for t in entry[2])
-                        coverage.update(used)
-                    row = dict(
-                        epoch=epoch,
-                        objective_loss=float(np.mean(losses)) if losses else None,
-                        epoch_unique_windows=len(used),
-                        cumulative_unique_windows=len(coverage),
-                    )
-                    for split in ("train", "validation"):
-                        metrics, people = evaluate(
-                            model, centered[split], galleries[galleries.split == split], device, temperature
+            for variant in variants:
+                training_folder = folder if len(variants) == 1 else folder / variant
+                training_folder.mkdir(exist_ok=True)
+                experiment_label = label if len(variants) == 1 else f"{label}_{variant}"
+                torch.manual_seed(seed)
+                initial = VideoHead(profile, variant).to(device)
+                torch.save(initial.state_dict(), training_folder / "initial.pt")
+                histories, arms = {}, {}
+                for arm in ("true", "misaligned"):
+                    destination = training_folder / arm
+                    destination.mkdir()
+                    model = copy.deepcopy(initial)
+                    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+                    history, best, best_epoch, coverage = [], -np.inf, 0, set()
+                    for epoch in range(epochs + 1):
+                        losses, used = [], set()
+                        if epoch:
+                            model.train()
+                            for entry in schedule[(epoch - 1) * steps_per_epoch : epoch * steps_per_epoch]:
+                                a, b = batch(centered["train"], entry, device, arm == "misaligned")
+                                loss = contrastive_loss(model(a), model(b), temperature)
+                                if not torch.isfinite(loss):
+                                    raise ValueError("Nonfinite loss.")
+                                optimizer.zero_grad()
+                                loss.backward()
+                                torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0, error_if_nonfinite=True)
+                                optimizer.step()
+                                losses.append(float(loss.detach()))
+                                used.update((p, t) for p in entry[:2] for t in entry[2])
+                            coverage.update(used)
+                        row = dict(
+                            epoch=epoch,
+                            objective_loss=float(np.mean(losses)) if losses else None,
+                            epoch_unique_windows=len(used),
+                            cumulative_unique_windows=len(coverage),
                         )
-                        if epoch == 0 and head_type == "feature-weights":
-                            for metric in ("top1", "mrr", "loss"):
-                                if not np.isclose(metrics[metric], scores[split][metric], atol=1e-7, rtol=1e-6):
-                                    raise ValueError("Identity weighting does not reproduce direct retrieval.")
-                        row.update({f"{split}_{k}": v for k, v in metrics.items()})
-                        if split == "validation" and metrics["mrr"] > best:
-                            best, best_epoch = metrics["mrr"], epoch
-                            torch.save(model.state_dict(), destination / "best.pt")
-                            people.to_csv(destination / "best_validation_people.csv")
-                            if head_type == "feature-weights":
-                                np.save(
-                                    destination / "best_weights.npy", model.feature_weights().detach().cpu().numpy()
+                        for split in ("train", "validation"):
+                            metrics, people = evaluate(
+                                model, centered[split], galleries[galleries.split == split], device, temperature
+                            )
+                            if epoch == 0 and variant != "compact":
+                                for metric in ("top1", "mrr", "loss"):
+                                    if not np.isclose(metrics[metric], scores[split][metric], atol=1e-7, rtol=1e-6):
+                                        raise ValueError("Identity weighting does not reproduce direct retrieval.")
+                            row.update({f"{split}_{k}": v for k, v in metrics.items()})
+                            if split == "validation" and metrics["mrr"] > best:
+                                best, best_epoch = metrics["mrr"], epoch
+                                torch.save(model.state_dict(), destination / "best.pt")
+                                people.to_csv(destination / "best_validation_people.csv")
+                                if variant != "compact":
+                                    np.savez(destination / "best_weights.npz", **model.saved_weights())
+                                    if variant == "feature-weights":
+                                        np.save(destination / "best_weights.npy", model.saved_weights()["feature"])
+                        if variant != "compact":
+                            for kind, weights in model.saved_weights().items():
+                                prefix = "weight" if variant == "feature-weights" else f"{kind}_weight"
+                                row.update(
+                                    {
+                                        f"{prefix}_min": float(weights.min()),
+                                        f"{prefix}_max": float(weights.max()),
+                                        f"{prefix}_std": float(weights.std()),
+                                    }
                                 )
-                    if head_type == "feature-weights":
-                        weights = model.feature_weights().detach().cpu().numpy()
-                        row.update(
-                            weight_min=float(weights.min()),
-                            weight_max=float(weights.max()),
-                            weight_std=float(weights.std()),
+                        history.append(row)
+                        pd.DataFrame(history).to_csv(destination / "history.csv", index=False)
+                        print(
+                            f"{experiment_label}/{arm} epoch {epoch}: validation MRR={row['validation_mrr']:.4f}",
+                            flush=True,
                         )
-                    history.append(row)
-                    pd.DataFrame(history).to_csv(destination / "history.csv", index=False)
-                    print(f"{label}/{arm} epoch {epoch}: validation MRR={row['validation_mrr']:.4f}", flush=True)
-                torch.save(model.state_dict(), destination / "last.pt")
-                if head_type == "feature-weights":
-                    np.save(destination / "last_weights.npy", model.feature_weights().detach().cpu().numpy())
-                histories[arm] = pd.DataFrame(history)
-                arms[arm] = dict(best_epoch=best_epoch, selected=history[best_epoch], final=history[-1])
-                for split in ("train", "validation"):
-                    comparison.append(
-                        dict(
-                            profile=profile,
-                            centering=mode,
-                            arm=arm,
-                            split=split,
-                            **{m: history[best_epoch][f"{split}_{m}"] for m in ("top1", "mrr", "loss")},
+                    torch.save(model.state_dict(), destination / "last.pt")
+                    if variant != "compact":
+                        np.savez(destination / "last_weights.npz", **model.saved_weights())
+                        if variant == "feature-weights":
+                            np.save(destination / "last_weights.npy", model.saved_weights()["feature"])
+                    histories[arm] = pd.DataFrame(history)
+                    arms[arm] = dict(best_epoch=best_epoch, selected=history[best_epoch], final=history[-1])
+                    for split in ("train", "validation"):
+                        comparison.append(
+                            dict(
+                                profile=profile if len(variants) == 1 else f"{profile}_{variant}",
+                                centering=mode,
+                                arm=arm,
+                                split=split,
+                                **{m: history[best_epoch][f"{split}_{m}"] for m in ("top1", "mrr", "loss")},
+                            )
                         )
-                    )
-            plot_history(histories, folder, reference["metrics"])
-            summaries[label] = dict(parameters=sum(p.numel() for p in initial.parameters()), arms=arms)
+                plot_history(histories, training_folder, reference["metrics"])
+                summaries[experiment_label] = dict(parameters=sum(p.numel() for p in initial.parameters()), arms=arms)
     pd.DataFrame(comparison).to_csv(output / "comparison.csv", index=False)
-    plot_summary(pd.DataFrame(comparison), output)
+    plot_summary(pd.DataFrame(comparison), output, reference["metrics"])
     report = dict(
         scope="Frozen pretrained LaBraM geometry and contrastive readouts; exploratory held-time pilot",
         video_id=int(reference.get("video_id", 0)),
         noise_level=reference.get("noise_level", "none"),
+        cohort=reference.get("cohort", "solo"),
+        baseline_metrics=reference["metrics"],
+        variants=variants,
         cache_sha256=sha256(cache / "cache.json"),
         reference_sha256=sha256(run / "baseline.json"),
         checkpoint_sha256=sha256(checkpoint),
@@ -319,14 +360,16 @@ def run_video_projection(
         profiles=profiles,
         diagnostics_only=diagnostics_only,
         head_type=head_type,
-        identity_baseline_verified=head_type == "feature-weights" and not diagnostics_only,
-        weighting="200 shared positive weights, 200*softmax(logits); zero initialization; full flattened cosine"
-        if head_type == "feature-weights"
+        identity_baseline_verified=head_type != "compact" and not diagnostics_only,
+        weighting="Identity-initialized mean-one positive weights: 200 features, 64 channels shared over time, or both"
+        if head_type != "compact"
         else None,
         readouts={
             p: {
                 "shape": list(next(iter(banks[p]["train"].values())).shape),
-                "head_parameters": sum(x.numel() for x in VideoHead(p, head_type).parameters()),
+                "head_parameters": sum(x.numel() for x in VideoHead(p, variants[0]).parameters())
+                if len(variants) == 1
+                else {v: sum(x.numel() for x in VideoHead(p, v).parameters()) for v in variants},
             }
             for p in profiles
         },
@@ -351,7 +394,7 @@ def run_video_projection(
     return report
 
 
-def plot_summary(frame: pd.DataFrame, output: Path) -> None:
+def plot_summary(frame: pd.DataFrame, output: Path, baselines: dict | None = None) -> None:
     """Plot direct and selected-head validation scores without implying independent tests."""
     import matplotlib
 
@@ -365,6 +408,9 @@ def plot_summary(frame: pd.DataFrame, output: Path) -> None:
     for ax, metric, chance in zip(axes, ("top1", "mrr"), (0.25, sum(1 / np.arange(1, 5)) / 4), strict=True):
         for arm, rows in frame.groupby("arm"):
             ax.plot(labels, rows.set_index("label")[metric].reindex(labels), "o-", label=arm)
+        for name in ("waveform", "corrca"):
+            if baselines and name in baselines.get("validation", {}):
+                ax.axhline(baselines["validation"][name][metric], linestyle="--", label=name)
         ax.axhline(chance, color="gray", linestyle=":")
         ax.set_title(metric)
         ax.tick_params(axis="x", rotation=35)

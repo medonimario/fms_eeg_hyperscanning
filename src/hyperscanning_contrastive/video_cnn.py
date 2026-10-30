@@ -45,11 +45,12 @@ class VideoCNN(nn.Module):
 def load_bank(cache: Path, run: Path, windows: pd.DataFrame, standardize: bool = True) -> tuple[dict, np.ndarray]:
     """Load eligible development windows only and fit channel scales on training samples."""
     people = pd.read_csv(run / "participant_splits.csv")
-    dev = set(people.loc[(people.split == "development") & (people.condition == "solo"), "participant_id"])
-    source = pd.read_csv(cache / "windows.csv")
     metadata = json.loads((run / "baseline.json").read_text())
+    cohort = metadata.get("cohort", "solo")
+    dev = set(people.loc[(people.split == "development") & (people.condition == cohort), "participant_id"])
+    source = pd.read_csv(cache / "windows.csv")
     video_id = int(metadata.get("video_id", 0))
-    source = source[(source.video_id == video_id) & source.eligible & (source.condition == "solo")]
+    source = source[(source.video_id == video_id) & source.eligible & (source.condition == cohort)]
     if "noise_level" in metadata and metadata["noise_level"] != "combined":
         source = source[source.noise_level == metadata["noise_level"]]
     source = source.set_index(["participant_id", "cache_start"])
