@@ -1,0 +1,9 @@
+array-api-compat
+joblib
+matplotlib
+mne
+numpy>=2
+pandas
+python-dotenv
+scikit-learn
+scipy

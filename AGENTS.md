@@ -133,3 +133,13 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
 * Direct patch scores: `video-patch-scores --run <completed-full-token-projection-run> --output <new-directory>` compares flattened/patch-mean/patch-max/top8 cosine without training or encoder access. Verify source artifact hashes, training-only global center and flattened baseline reproduction; retain fixed galleries and tie-aware person aggregation. See README and `hpc/video_patch_scores.lsf`; tests in `test_video_patch_scores.py`.
 
 * Together low-noise comparison: `video-individual --video-cohort together --video-noise low --video-id 3 --video-readouts full --centerings global --video-head-type weighting-comparison` fits a cohort-specific waveform/CorrCA baseline and feature/channel/combined weighting variants. All eligible viewer pairs are allowed; inherit and verify dyad-group reservations, share features/schedules/galleries, and keep identity checks and matched controls. Wrapper: `hpc/video_together_weighting.lsf`; old solo/compact defaults are unchanged.
+
+# Circling movement and mTRF replication
+
+* Set the repository-root .env variable CIRCLING_DATASET_PATH and export PYTHONPATH=src. Run
+  `python -m mTRF.movement --output <new-movement-dir> --report`, then
+  `python -m mTRF.eeg fit --phase <phase_list.pickle> --output <eeg-run> --jobs 4`.
+  One-dyad jobs use `--pair`; merge all 52 with `python -m mTRF.eeg collect --output <eeg-run>`.
+  See src/mTRF/README.md for local dataset filenames, the verified pair 2020 onsets, notebook-specific artifact
+  indexing, and CPU LSF wrappers. Preserve the active vendored fork and the original whole-trial scoring conventions.
+  Run `python -m pytest tests/mtrf` for targeted checks.
