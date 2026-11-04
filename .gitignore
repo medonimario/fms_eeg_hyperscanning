@@ -25,6 +25,7 @@ __pycache__/
 *.so
 
 # folders
+/output/research/
 /models/
 /src/labram_classification/hpc/
 /src/hyperscanning_contrastive/hpc/
