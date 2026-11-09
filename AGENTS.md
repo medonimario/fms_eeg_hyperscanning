@@ -143,3 +143,10 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   See src/mTRF/README.md for local dataset filenames, the verified pair 2020 onsets, notebook-specific artifact
   indexing, and CPU LSF wrappers. Preserve the active vendored fork and the original whole-trial scoring conventions.
   Run `python -m pytest tests/mtrf` for targeted checks.
+
+* mTRF movement retrieval: run `PYTHONPATH=src python -m mTRF.retrieval run --phase <phase_list.pickle>
+  --run <completed-mtrf-run> --output <new-retrieval-run> --pair <dyad> --jobs 4`; CPU array wrapper
+  `src/mTRF/hpc/retrieval.lsf` accepts MOVEMENT_OUTPUT, EEG_OUTPUT and RETRIEVAL_OUTPUT. Collect all 52 with
+  `python -m mTRF.retrieval collect --output <retrieval-run>`. Refit Full models using saved penalties,
+  require reproduction of original fold scores, and rank only original outer-test trials from the same
+  participant/condition. Preserve query-specific chance, uniform tie handling and dyad-level summaries.

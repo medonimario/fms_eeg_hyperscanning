@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import zscore
 
-from mTRF import eeg
+from mTRF import eeg, retrieval
 
 
 def test_artifact_indices_and_extra_trial() -> None:
@@ -50,6 +50,12 @@ def test_fit_and_collect(tmp_path: Path, monkeypatch) -> None:
     )
     np.testing.assert_allclose(scores["open_SelfOther"][1], expected)
     assert len(scores) == 12 and np.shape(maps["open_self"]) == (2, 1, 1)
+    reference = {key: [None] * (2 * eeg.PAIRS.index(pair)) + values for key, values in scores.items()}
+    recovered = retrieval.evaluate_pair(tmp_path, pair, phase, bad, reference, jobs=1)
+    assert len(recovered) == 30
+    for result in recovered:
+        assert len(result["train_trials"]) + len(result["test_trials"]) == len(keep)
+        np.testing.assert_allclose(result["reference_scores"], result["refit_scores"])
     monkeypatch.setattr(eeg, "PAIRS", (2020, 2030))
     for dyad in eeg.PAIRS:
         eeg.save_pickle(tmp_path / f"pair{dyad}.pickle", (scores, maps))

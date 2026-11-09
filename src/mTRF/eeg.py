@@ -2,6 +2,7 @@
 
 import argparse
 import pickle
+from collections.abc import Iterator
 from pathlib import Path
 
 import mne
@@ -66,8 +67,20 @@ def electrode_scores(stim: list, resp: list, regularization: float) -> np.ndarra
     return (1 - ss_res / ss_tot).mean(axis=0)
 
 
-def fit_pair(root: Path, pair: int, phase: tuple, bad: dict, jobs: int) -> tuple[dict, dict]:
-    """Fit the four notebook models for both participants under all three conditions."""
+def participant_trials(
+    root: Path, pair: int, phase: tuple, bad: dict
+) -> Iterator[tuple[str, int, list[int], np.ndarray, np.ndarray]]:
+    """Yield condition, member index, retained trial indices, full predictors and EEG.
+
+    Args:
+        root: Dataset directory containing preprocessed participant FIFs.
+        pair: Original dyad identifier.
+        phase: Original uncropped movement phases for this dyad.
+        bad: Trusted notebook artifact dictionary.
+
+    Yields:
+        Aligned whole-trial arrays in the notebook's condition and participant order.
+    """
     phase = movement_phase(phase, pair)
     epochs = [
         mne.read_epochs(eeg_path(root, pair, member), preload=True, verbose=False).crop(tmin=2)[
@@ -77,8 +90,6 @@ def fit_pair(root: Path, pair: int, phase: tuple, bad: dict, jobs: int) -> tuple
     ]
     if epochs[0].ch_names != epochs[1].ch_names:
         raise ValueError(f"Pair {pair} has mismatched EEG channel order.")
-    scores = {f"{c}_{model}": [] for c in CONDITIONS for model in MODELS}
-    maps = {f"open_{effect}": [] for effect in ("full", *REDUCED)}
     for c, condition in enumerate(CONDITIONS):
         keep = retained_trials(bad[f"{pair}_{condition}"])
         first, second = (e[condition] for e in epochs)
@@ -88,38 +99,46 @@ def fit_pair(root: Path, pair: int, phase: tuple, bad: dict, jobs: int) -> tuple
             raise ValueError(f"Pair {pair} {condition} EEG event times differ.")
         a, b = phase[:, c][:, keep]
         coord = np.cos(new_rel_phase(a, b))
-        for selected, own, other in ((first, a, b), (second, b, a)):
+        for member, (selected, own, other) in enumerate(((first, a, b), (second, b, a))):
             data = zscore(selected[keep].resample(FS, verbose=False).get_data(), axis=-1).transpose(0, 2, 1)
             if data.shape[:2] != own.shape or not np.isfinite(data).all():
                 raise ValueError(
                     f"Pair {pair} {condition} has misaligned or nonfinite EEG: {data.shape} vs {own.shape}."
                 )
             features = (np.cos(own), np.sin(own), np.cos(other), np.sin(other), coord)
-            topo = {}
-            for model, columns in MODELS.items():
-                stim = list(np.stack([features[i] for i in columns], axis=-1))
-                resp = list(data)
-                result = nested_crossval(
-                    TRF(direction=1, preload=False),
-                    stim,
-                    resp,
-                    FS,
-                    *LAGS,
-                    LAMBDAS,
-                    k=5,
-                    seed=123,
-                    n_jobs=jobs,
-                    verbose=False,
-                )
-                if not all(np.isfinite(values).all() for values in result):
-                    raise ValueError(f"Nonfinite fold result for pair {pair}, condition {condition}, model {model}.")
-                scores[f"{condition}_{model}"].append(result)
-                if condition == "open":
-                    topo[model] = electrode_scores(stim, resp, np.median(result[1]))
-            if topo:
-                maps["open_full"].append([topo["Full"]])
-                for effect, reduced in REDUCED.items():
-                    maps[f"open_{effect}"].append([topo["Full"] - topo[reduced]])
+            yield condition, member, keep, np.stack(features, axis=-1), data
+
+
+def fit_pair(root: Path, pair: int, phase: tuple, bad: dict, jobs: int) -> tuple[dict, dict]:
+    """Fit the four notebook models for both participants under all three conditions."""
+    scores = {f"{c}_{model}": [] for c in CONDITIONS for model in MODELS}
+    maps = {f"open_{effect}": [] for effect in ("full", *REDUCED)}
+    for condition, _, _, features, data in participant_trials(root, pair, phase, bad):
+        topo = {}
+        for model, columns in MODELS.items():
+            stim = list(features[..., list(columns)])
+            resp = list(data)
+            result = nested_crossval(
+                TRF(direction=1, preload=False),
+                stim,
+                resp,
+                FS,
+                *LAGS,
+                LAMBDAS,
+                k=5,
+                seed=123,
+                n_jobs=jobs,
+                verbose=False,
+            )
+            if not all(np.isfinite(values).all() for values in result):
+                raise ValueError(f"Nonfinite fold result for pair {pair}, condition {condition}, model {model}.")
+            scores[f"{condition}_{model}"].append(result)
+            if condition == "open":
+                topo[model] = electrode_scores(stim, resp, np.median(result[1]))
+        if topo:
+            maps["open_full"].append([topo["Full"]])
+            for effect, reduced in REDUCED.items():
+                maps[f"open_{effect}"].append([topo["Full"] - topo[reduced]])
     return scores, maps
 
 

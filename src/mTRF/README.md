@@ -98,3 +98,62 @@ shard. After all tasks succeed, activate the same environment, then run
 
 Run `python -m pytest tests/mtrf` for regression checks on artifact indexing, pair-specific trial handling, the
 actual nested fitting entry point and group aggregation using synthetic FIFs.
+
+## Held-out movement retrieval baseline
+
+The retrieval command asks which candidate movement recording belongs to a query EEG trial. It uses the saved **Full**
+model configuration (self sine/cosine, partner sine/cosine and coordination). It retrieves the entire aligned movement
+record, so success can depend on self movement as well as partner movement. This is a first benchmark for comparison
+with a contrastive model using the same inputs, splits and galleries.
+
+The original result files save penalties and fold scores, but omit fitted weights and trial predictions. Retrieval
+therefore needs the original preprocessed FIFs, phase pickle and bad-segment dictionary. For each original outer fold,
+it reconstructs the seed-123 trial split and refits on training trials with the **saved penalty**. It skips the inner
+penalty search. Before ranking candidates, it requires the refit to reproduce that fold's saved correlation and R²
+(rtol 1e-5, atol 1e-8). A mismatch fails the pair with a diagnostic message.
+
+Each query's candidates are exactly the other held-out trials plus the correct trial from the same participant,
+condition and outer fold. All candidates are whole 18-second trials. Each candidate's movement is passed through that
+participant's fitted forward mTRF. The score is residual R² against the query EEG, averaged across channels.
+Higher scores rank first. No retrieval setting is selected from these test-fold scores.
+
+Top-1 chance is 1/K and MRR chance is (1 + 1/2 + ... + 1/K)/K. With this cohort's retained-trial counts, K is 3 or 4,
+so top-1 chance is 33.3% or 25% per query. Exact ties receive the expected score for uniformly random tie-breaking.
+Chance is averaged with the same weights as the measured scores. Collection first averages queries per person, then
+the two people per dyad, then dyads per condition. Pair 2020 remains in detailed outputs and is excluded from group
+summaries, matching the main replication. This is a descriptive comparison with chance, without a significance claim.
+
+For a single-pair check, activate the same environment as the original fit and run from the repository root:
+
+```bash
+export PYTHONPATH=src
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+python -m mTRF.retrieval run \
+    --phase /path/to/original/movement-run/phase_list.pickle \
+    --run /path/to/completed/circling_mtrf_01 \
+    --output /path/to/new/circling_mtrf_retrieval_01 \
+    --pair 2010 --jobs 4
+```
+
+For all pairs, export MOVEMENT_OUTPUT and EEG_OUTPUT as in the original jobs, plus RETRIEVAL_OUTPUT pointing to a
+separate new directory. The HPC directory is Git-ignored; copy `src/mTRF/hpc/retrieval.lsf` explicitly when deploying.
+Submit `bsub < src/mTRF/hpc/retrieval.lsf`. This uses the requested XeonGold6226R CPU array,
+four workers per dyad, a four-hour limit, and at most eight concurrent dyads. Each pair requires 30 refits
+(two people × three conditions × five folds), with no new cross-validation search. Retry a failed task using the same
+inputs and its `--pair` value, writing to the same retrieval directory.
+
+After all 52 tasks finish:
+
+```bash
+PYTHONPATH=src python -m mTRF.retrieval collect --output "$RETRIEVAL_OUTPUT"
+```
+
+Collection requires only the saved retrieval shards and can run locally after copying them back. Outputs include
+`summary.csv`, `retrieval.png`, `participants.csv`, `dyads.csv`, `queries.csv` and `candidate_scores.csv`.
+Each pair pickle preserves train/test trial IDs, all query-by-candidate score matrices, original/refitted fold metrics,
+selected penalties and EEG source hashes. `protocol.json` records input/code hashes and the scoring convention.
+Collection rejects missing or incompatible shards. Original fitted weights are still not retained.
+
+The retrieval gallery and query lists are suitable for reusing unchanged in a future contrastive benchmark.
+Developing that model on these displayed results will require a separate final evaluation for an unbiased
+model-comparison claim.
