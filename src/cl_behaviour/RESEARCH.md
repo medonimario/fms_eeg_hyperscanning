@@ -1,5 +1,10 @@
 # Research report: contrastive EEG-to-behaviour retrieval
 
+**Implementation correction (11 November 2026):** the user has designated the colleague's original mTRF
+notebook as the artifact-exclusion authority. New preparation uses its exact mapping and membership test,
+not the contrastive reader's `index // 3` assumption. Earlier discussion below of separate exclusion profiles
+is superseded for this project's preparation. See README.md for format version 2 and rerun instructions.
+
 **First draft | 10 November 2026 | Circling first**
 
 ## Recommendation and scope

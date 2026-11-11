@@ -14,11 +14,19 @@ Updated 11 November 2026.
 
 ## Preparation contract
 
-Preparation retains all three conditions. It excludes the entire paired trial when any of its three six-second
-sections is marked bad. Indexing uses the confirmed local contrastive dictionary convention: `trial = index // 3`,
-`section = index % 3`. This implements whole-trial rejection but intentionally differs from the historical mTRF
-notebook's unusual modulo-20 indexing. `trials.csv` records both decisions; completion metadata counts disagreements.
-Do not compare this cache directly with historical mTRF scores without matching trial identities and galleries.
+Preparation retains all three conditions and now uses **the colleague's mTRF notebook exclusions exactly**:
+`((index - 1) % 20) + 1`, compared directly with zero-based `range(20)`. Both participants and movement inherit
+that decision. This replaces the incorrect `index // 3` assumption used by preparation format version 1.
+Use only new format-version-2 audits/caches with `artifact_policy=mtrf-notebook-exact`.
+
+The notebook's boundary behavior is deliberately preserved: indices 0, 20, 40 and 60 map to 20 and therefore do not
+exclude a trial. The supplied dictionary contains none of those indices; `artifact_unmatched_indices` reports
+any such entries in future inputs. This is exact reproduction of the authorized reference, not a new indexing
+convention. The manifest records contributing `artifact_indices`, without inferring within-trial bad sections.
+`historical_exclusion_disagreements` must be zero. The old audit `cl_behaviour_audit_30001599` is superseded.
+
+After deploying updated code, rerun the audit in a fresh job before preparation. With the same dictionary and
+cohort, expect 3,055 retained paired trials and 24,440 paired windows (65 excluded trials).
 
 EEG preparation reuses the existing contrastive reader: strict paired events/selections/time axes, canonical 64
 channels, float32 microvolts, resampling each four-second window to 200 Hz. No extra filtering, referencing,
@@ -54,7 +62,7 @@ The default operation is a metadata/phase audit. It reads EEG headers, validates
 never extracts EEG signals. The wrapper defaults to your supplied movement path:
 `/work3/s204684/Thesis/circling_eeg/movement/runs/circling_movement_01/phase_list.pickle`.
 
-Review `audit.json`, `census.csv`, and `trials.csv`, particularly exclusion disagreements and retained counts.
+Review `audit.json`, `census.csv`, and `trials.csv`, requiring zero exclusion disagreements and checking retained counts.
 Then submit signal preparation:
 
 ```bash

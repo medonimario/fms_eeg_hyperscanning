@@ -43,7 +43,7 @@ def movement_phase(phase: tuple, pair: int) -> np.ndarray:
 
 
 def retained_trials(bad: list[int]) -> list[int]:
-    """Compute the historical mTRF exclusion decision for comparison only."""
+    """Reproduce the reference notebook mapping and its zero-based membership test exactly."""
     excluded = {(int(index) - 1) % 20 + 1 for index in bad}
     return [i for i in range(20) if i not in excluded]
 
@@ -53,20 +53,27 @@ def aligned_plan(first: mne.BaseEpochs, second: mne.BaseEpochs, pair: int, bad: 
     for condition in CONDITIONS:
         if f"{pair}_{condition}" not in bad:
             raise ValueError(f"Missing artifact key: {pair}_{condition}")
-    _, trials = plan_pair(first, second, pair, bad)
+    # Reuse EEG identity checks only; the contrastive artifact mapping is not applicable here.
+    _, trials = plan_pair(first, second, pair, {f"{pair}_{c}": [] for c in CONDITIONS})
     windows = []
     for condition in CONDITIONS:
         selected = [row for row in trials if row["condition"] == condition]
         if len(selected) != 20:
             raise ValueError(f"Pair {pair}: expected 20 aligned {condition} trials.")
-        historical = retained_trials(bad[f"{pair}_{condition}"])
+        marked = bad[f"{pair}_{condition}"]
+        if any(index > 60 for index in marked):
+            raise ValueError(f"Pair {pair}: artifact index exceeds 60 condition segments.")
+        historical = retained_trials(marked)
         for row in selected:
             trial = row["condition_trial"]
-            keep = not row["bad_sections"]
+            keep = trial in historical
+            row.pop("bad_sections")
+            row.pop("clean_seconds")
             row.update(
                 retained_windows=8 if keep else 0,
                 retained=keep,
-                reason="" if keep else "bad_six_second_section",
+                reason="" if keep else "reference_notebook_bad_trial",
+                artifact_indices=";".join(str(i) for i in marked if (i - 1) % 20 + 1 == trial),
                 historical_mtrf_retained=trial in historical,
                 movement_original_trial=trial + int(pair == 2450 and trial >= 10),
                 main_summary_eligible=pair != 2020,
@@ -169,7 +176,7 @@ def prepare(directory: Path, phase_path: Path, bad_path: Path, output: Path, wri
     for name, frame in frames.items():
         frame.to_csv(output / name, index=False)
     result = dict(
-        format_version=1,
+        format_version=2,
         dataset="circling-eeg-behaviour",
         operation="prepare" if write else "audit",
         channels=CHANNELS,
@@ -185,7 +192,15 @@ def prepare(directory: Path, phase_path: Path, bad_path: Path, output: Path, wri
         trial_interval_seconds=[2, 20],
         window_seconds=4,
         stride_seconds=2,
-        artifact_policy="whole paired trial rejected when any zero-based segment index // 3 matches trial",
+        artifact_policy="mtrf-notebook-exact",
+        artifact_trial_mapping="((index - 1) % 20) + 1 compared directly with range(20)",
+        artifact_reference="src/mTRF/example_EEG_mTRF.ipynb: segment_to_epoch and good_e",
+        artifact_boundary_policy="preserve notebook: mapped value 20 excludes no zero-based trial",
+        artifact_unmatched_indices={
+            key: [i for i in values if (i - 1) % 20 + 1 == 20]
+            for key, values in bad.items()
+            if any((i - 1) % 20 + 1 == 20 for i in values)
+        },
         split="unassigned; no statistics fitted",
         pair2020_policy="retained; main_summary_eligible=false",
         phase_source=str(phase_path.resolve()),

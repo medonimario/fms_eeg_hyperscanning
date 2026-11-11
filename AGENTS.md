@@ -154,5 +154,5 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
 # EEG-to-behaviour preparation
 
 * Run `PYTHONPATH=src python -m cl_behaviour audit --phase <trusted-phase_list.pickle> --output <new-audit>`; use `prepare` to save signals. `--data-dir` overrides CIRCLING_DATASET_PATH. See `src/cl_behaviour/README.md`.
-* Reject whole paired trials using the confirmed six-second `index // 3` mapping, recording disagreement with historical mTRF indexing. Save eight four-second EEG windows at two-second stride per retained 18-second trial and original 240 Hz movement phases. No splits or centering yet.
+* For cl_behaviour, reject whole paired trials using the colleague-authorized mTRF notebook mapping `((index - 1) % 20) + 1` compared with `range(20)`. Format version 2 supersedes the erroneous version-1 `index // 3` mapping; disagreement with mTRF must be zero. Save eight four-second EEG windows at two-second stride per retained 18-second trial and original 240 Hz movement phases. No splits or centering yet.
 * HPC: `bsub < src/cl_behaviour/hpc/circling_prepare.lsf` defaults to audit; set `STAGE=prepare` after review. Copy the ignored wrapper explicitly. Tests: `PYTHONPATH=src python -m pytest tests/cl_behaviour`.
