@@ -30,6 +30,7 @@ __pycache__/
 /src/labram_classification/hpc/
 /src/hyperscanning_contrastive/hpc/
 /src/mTRF/hpc/
+/src/cl_behaviour/hpc/
 
 # files
 /src/hyperscanning_contrastive/dict_with_short_bad_epochs.pickle

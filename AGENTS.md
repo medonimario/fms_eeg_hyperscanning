@@ -150,3 +150,9 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   `python -m mTRF.retrieval collect --output <retrieval-run>`. Refit Full models using saved penalties,
   require reproduction of original fold scores, and rank only original outer-test trials from the same
   participant/condition. Preserve query-specific chance, uniform tie handling and dyad-level summaries.
+
+# EEG-to-behaviour preparation
+
+* Run `PYTHONPATH=src python -m cl_behaviour audit --phase <trusted-phase_list.pickle> --output <new-audit>`; use `prepare` to save signals. `--data-dir` overrides CIRCLING_DATASET_PATH. See `src/cl_behaviour/README.md`.
+* Reject whole paired trials using the confirmed six-second `index // 3` mapping, recording disagreement with historical mTRF indexing. Save eight four-second EEG windows at two-second stride per retained 18-second trial and original 240 Hz movement phases. No splits or centering yet.
+* HPC: `bsub < src/cl_behaviour/hpc/circling_prepare.lsf` defaults to audit; set `STAGE=prepare` after review. Copy the ignored wrapper explicitly. Tests: `PYTHONPATH=src python -m pytest tests/cl_behaviour`.
