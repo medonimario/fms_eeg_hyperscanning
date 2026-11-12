@@ -1,12 +1,12 @@
 # EEG-to-behaviour retrieval: implementation status
 
-Updated 11 November 2026.
+Updated 12 November 2026.
 
 | Step | Status |
 |---|---|
 | 1. Research and design | First draft complete: [research](RESEARCH.md), [plan](PLAN.md) |
-| 2. EEG–movement audit and preparation | Implemented and synthetically tested; real-data cluster audit pending |
-| 3. Trial splits and fixed retrieval galleries | Next, after reviewing preparation |
+| 2. EEG–movement audit and preparation | Completed on cluster; preparation 30004124 metadata verified locally |
+| 3. Trial splits and fixed retrieval galleries | Implemented; run on cluster with the original cohort manifest |
 | 4. Frozen LaBraM extraction and training-only centering | Planned |
 | 5. Small contrastive heads, regression baseline and controls | Planned |
 | 6. Whole-trial retrieval and matched mTRF comparison | Planned |
@@ -91,3 +91,81 @@ Bring back the small JSON/CSV audit and preparation outputs for review; the larg
 No new packages are required beyond the existing Braindecode/mTRF environment.
 
 Run targeted checks with `PYTHONPATH=src python -m pytest tests/cl_behaviour`.
+
+## Freeze splits and galleries (current step)
+
+Preparation `30004124` passed local hash, census, notebook-dictionary exclusion, complete-window,
+repetition-order, array-index and EEG–phase timing/link checks: 3,055 retained paired trials, 65 exclusions,
+24,440 paired windows. Large signal arrays were not copied locally and have not been independently rehashed here.
+The split command validates metadata only. Future feature extraction must verify array hashes, shapes and finiteness
+before using signals.
+
+Deploy the package and explicitly copy the Git-ignored `hpc/circling_split.lsf`, then run:
+
+```bash
+mkdir -p outputs errors
+bsub < src/cl_behaviour/hpc/circling_split.lsf
+```
+
+This short CPU job defaults to preparation `30004124` and the historical contrastive cache
+`/work3/s204684/Thesis/data/processed/circling_contrastive_prepare_29758487/cache.json`.
+Override `CACHE` or `COHORT_MANIFEST` if those paths differ. No EEG, phase arrays or LaBraM weights are loaded.
+The historical cohort manifest is required; we do not regenerate its folds or claim its prior exposure is known.
+Fold 1 remains external validation and fold 2 external test; only the other folds supply the first galleries.
+
+Equivalent command:
+
+```bash
+PYTHONPATH=src python -m cl_behaviour split --cache /path/to/prepared-cache \
+  --cohort-manifest /path/to/original-contrastive-cache/cache.json --output /path/to/new-split
+```
+
+Within each development dyad, seed 2042 assigns all 20 repetitions to 12 training, four validation and four locked
+within-dyad test repetitions **before artifact filtering**. The RNG is keyed by dyad, so input ordering cannot alter
+assignments. Source-row ordering must establish the three consecutive conditions of each repetition. Both members,
+all conditions and all eight windows inherit that split. Excluded trials retain assignments for auditability.
+Pair 2020 remains available for diagnostics, with `main_summary_eligible=false` for later aggregate reporting.
+
+The default first task is **combined closed1 + closed2 / self**. Each participant has up to 40 distinct
+18-second trials (20 per closed condition), not 40 independent experimental repetitions. The same 12/4/4
+repetition assignment produces up to **24/8/8 trials** for training/validation/test before exclusions.
+Closed1 and closed2 from the same repetition always remain together. Candidates may come from either closed
+condition but must belong to the same participant and split. Original condition labels and trial identities
+are preserved; windows never cross trial boundaries. Each gallery's
+ordered `trial_ids` supplies both queries and candidates; positives are the diagonal. The same gallery applies
+separately at each matched window offset and later to whole-trial scoring. Artifacts can reduce validation/test
+candidate counts below eight (four for separate-condition galleries); actual K, chance top-1 and chance MRR are recorded. Fewer than two candidates is an
+explicit error. Test galleries are metadata only and must not be scored during development.
+
+All eight offsets are preserved. The initial training proposal uses non-overlapping crop offsets 0,4,8,12;
+eight-window evaluation/aggregation remains available without changing trial assignments. No features, means,
+scales, negative-pair permutations or training schedules are fitted at this step.
+
+Split format version 2 records the selected profile and unambiguous repetition/trial counts.
+
+Outputs: `split.json` (completion/provenance/counts), `splits.csv` (including exclusions), `windows.csv` (inherited
+splits and source indices), and `galleries.csv` (two participant-specific galleries per development dyad/split for the combined profile).
+Bring back `split.json` and `galleries.csv` for review. Frozen LaBraM and movement feature extraction comes next.
+This is a new within-dyad development protocol, not the saved mTRF outer-fold benchmark.
+
+### Combined and separate conditions
+
+`--profile combined-closed` is the CLI and wrapper default. The wrapper also accepts `PROFILE=separate-closed`
+or `PROFILE=open`. All profiles use identical repetition assignments at the same seed:
+
+| Profile | Eligible trials | Candidate pools per participant/split | Nominal validation K |
+|---|---|---|---|
+| `combined-closed` | closed1 + closed2 | One combined closed pool | 8 |
+| `separate-closed` | closed1 + closed2 | One pool per condition | 4 each |
+| `open` | open | One open pool (previous behavior) | 4 |
+
+Combined galleries increase training examples and candidate counts; this does not guarantee easier retrieval.
+Closed1 and closed2 may retain recording-order or condition differences. Future scoring should report each query's
+original condition, and the separate profile provides a condition-matched comparison on the same assignments.
+`galleries.csv` includes `trial_conditions` aligned with `trial_ids`; its `condition=closed` labels a combined
+pool, not a relabeling of source data. Actual K and chance remain explicit (nominal combined validation chance
+is 1/8, versus 1/4 for separate galleries). Split eligibility selects data only: it does not yet choose whether
+future training uses a shared model or participant-specific models.
+
+Reuse preparation `30004124`; no signal preparation is needed. Run the updated split wrapper into a new output
+directory. Earlier open split outputs remain valid for reproducing that profile, but are not the new default.

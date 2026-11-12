@@ -1,5 +1,13 @@
 # First-draft implementation plan
 
+**Current implementation:** preparation metadata verified; repetition splits and combined-closed/self galleries
+are implemented. The user-selected first task combines closed1 and closed2; open-first proposals below are
+superseded. Up to 40 trials per person inherit 12/4/4 paired repetitions (24/8/8 trials before exclusions).
+Separate-closed and open profiles preserve the same assignments.
+See README.md for the authoritative current contract and cluster command. The original cohort manifest is
+required; seed 2042 assigns 12/4/4 repetitions before artifact filtering, with variable candidate counts.
+Model stages below remain proposals.
+
 **Implementation correction (11 November 2026):** the user has designated the colleague's original mTRF
 notebook as the artifact-exclusion authority. New preparation uses its exact mapping and membership test,
 not the contrastive reader's `index // 3` assumption. Earlier discussion below of separate exclusion profiles

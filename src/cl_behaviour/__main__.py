@@ -6,17 +6,29 @@ from pathlib import Path
 from hyperscanning_contrastive.data import resolve_source
 
 from .data import prepare
+from .splits import PROFILES, split_cache
 
 
 def main() -> None:
-    """Prepare or audit a new cache without learning features or assigning splits."""
+    """Prepare signals or freeze a metadata-only retrieval protocol."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("audit", "prepare"))
-    parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--phase", type=Path, required=True, help="Trusted original phase_list.pickle.")
-    parser.add_argument("--bad-segments", type=Path)
-    parser.add_argument("--output", type=Path, required=True)
+    commands = parser.add_subparsers(dest="stage", required=True)
+    for stage in ("audit", "prepare"):
+        command = commands.add_parser(stage)
+        command.add_argument("--data-dir", type=Path)
+        command.add_argument("--phase", type=Path, required=True, help="Trusted original phase_list.pickle.")
+        command.add_argument("--bad-segments", type=Path)
+        command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("split", help="Freeze whole-repetition splits and self-movement galleries.")
+    command.add_argument("--cache", type=Path, required=True)
+    command.add_argument("--cohort-manifest", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--seed", type=int, default=2042)
+    command.add_argument("--profile", choices=PROFILES, default="combined-closed")
     args = parser.parse_args()
+    if args.stage == "split":
+        split_cache(args.cache, args.cohort_manifest, args.output, args.seed, args.profile)
+        return
     directory = resolve_source(args.data_dir)
     bad = args.bad_segments or directory.parent / "dict_with_short_bad_epochs.pickle"
     prepare(directory, args.phase, bad, args.output, args.stage == "prepare")
