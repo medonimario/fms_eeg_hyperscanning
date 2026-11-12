@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -173,6 +174,7 @@ def fit_tiny_arm(
     mapping: torch.Tensor,
     steps: int = 500,
     learning_rate: float = 0.01,
+    progress: Callable[[list[dict]], None] | None = None,
 ) -> tuple[dict, list[dict], dict, np.ndarray]:
     """Memorize one gallery using a fixed budget and report both assigned and true correspondence."""
     model = copy.deepcopy(initial)
@@ -196,6 +198,8 @@ def fit_tiny_arm(
                     true_top1=retrieval_metrics(logits)["top1"],
                 )
             )
+        if progress is not None and (step % 25 == 0 or step == steps):
+            progress(history)
         if step == steps:
             break
         optimizer.zero_grad()
@@ -243,6 +247,8 @@ def run_tiny_fit(
     selected.to_csv(output / "selected_windows.csv", index=False)
     movement, movement_stats = center_scale(movement.flatten(1))
     mapping = torch.randperm(pairs, generator=torch.Generator().manual_seed(seed + 1042))
+    from .plotting import plot_tiny_history
+
     results, histories = [], []
     for profile in profiles:
         print(f"Tiny-fit {profile}: {pairs} trials, pair {provenance['group']}{member}, offset {offset}s", flush=True)
@@ -259,13 +265,26 @@ def run_tiny_fit(
             torch.manual_seed(seed)
             initial = LinearHeads(eeg.shape[1], movement.shape[1], 32)
         for arm, positives in (("true", torch.arange(pairs)), ("shuffled", mapping)):
-            metrics, history, state, scores = fit_tiny_arm(initial, eeg, movement, positives, steps)
+
+            def report_progress(current: list[dict]) -> None:
+                """Persist the latest logs and periodically refresh a visible PNG."""
+                frame = pd.DataFrame(histories + [dict(profile=profile, arm=arm, **row) for row in current])
+                temporary = output / ".history.csv"
+                frame.to_csv(temporary, index=False)
+                temporary.replace(output / "history.csv")
+                if current[-1]["step"] % 100 == 0 or current[-1]["step"] == steps:
+                    plot_tiny_history(frame, output, 1 / pairs)
+
+            metrics, history, state, scores = fit_tiny_arm(
+                initial, eeg, movement, positives, steps, progress=report_progress
+            )
             results.append(dict(profile=profile, arm=arm, **metrics))
             histories.extend(dict(profile=profile, arm=arm, **row) for row in history)
             torch.save(state, output / f"{profile}_{arm}_heads.pt")
             np.save(output / f"{profile}_{arm}_logits.npy", scores, allow_pickle=False)
     pd.DataFrame(histories).to_csv(output / "history.csv", index=False)
     pd.DataFrame(results).to_csv(output / "comparison.csv", index=False)
+    plot_tiny_history(pd.DataFrame(histories), output, 1 / pairs)
     result = dict(
         format_version=1,
         operation="tiny-fit",
@@ -291,7 +310,8 @@ def run_tiny_fit(
         results=results,
         versions=dict(torch=torch.__version__, numpy=np.__version__, pandas=pd.__version__),
         code_sha256={
-            name: digest(Path(__file__).with_name(name)) for name in ("tiny_fit.py", "models.py", "contrastive.py")
+            name: digest(Path(__file__).with_name(name))
+            for name in ("tiny_fit.py", "models.py", "contrastive.py", "plotting.py")
         },
         output_sha256={p.name: digest(p) for p in sorted(output.iterdir()) if p.is_file()},
     )

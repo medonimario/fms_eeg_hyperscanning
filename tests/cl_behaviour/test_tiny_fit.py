@@ -140,6 +140,8 @@ def test_tiny_fit_outputs(tiny_cache, tmp_path):
     result = run_tiny_fit(features, run, output, steps=100)
     assert result["passed"] and not result["validation_features_materialized"]
     assert (output / "tiny_fit.json").is_file()
+    assert (output / "learning_curves.png").is_file()
+    assert not (output / "learning_curves.pdf").exists()
     for name, checksum in result["output_sha256"].items():
         assert digest(output / name) == checksum
     with pytest.raises(FileExistsError):

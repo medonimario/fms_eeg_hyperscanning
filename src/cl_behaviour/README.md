@@ -8,7 +8,7 @@ Updated 12 November 2026.
 | 2. EEG–movement audit and preparation | Completed on cluster; preparation 30004124 metadata verified locally |
 | 3. Trial splits and fixed retrieval galleries | Split 30017853 verified; combined closed conditions |
 | 4. Frozen LaBraM and movement features | Full extraction 30020418 verified; centering deferred to training |
-| 5. Small contrastive heads, regression baseline and controls | Synthetic controls passed; training-only tiny-fit implemented, cluster run next |
+| 5. Small contrastive heads, regression baseline and controls | Synthetic controls passed; Tiny-fit 30020628 passed; held-trial training implemented, cluster run next |
 | 6. Whole-trial retrieval and matched mTRF comparison | Planned |
 | 7. Partner-specific and unseen-dyad experiments | Later |
 
@@ -361,3 +361,110 @@ per-arm final heads and score matrices. Scores have EEG queries as rows, movemen
 `shuffled_positive_columns` specifies each shuffled row's assigned positive. Logs show both assigned retrieval
 directions, MRR, original-pair top-1 and loss. Bring back **tiny_fit.json, comparison.csv and history.csv**.
 The large feature arrays can remain on HPC.
+
+
+### Learning curves
+
+Tiny-fit runs now write `history.csv` every 25 updates and refresh `learning_curves.png` every 100 updates,
+at step zero and at the final step of each arm. The PNG can be inspected while the job runs. PNG is the only figure format. Files are replaced atomically, so readers do not see partly written plots/history.
+Plots show log-scale loss and EEG-to-movement top-1 per readout, distinguishing assigned matches from original
+matches for the shuffled arm. Reverse-direction retrieval and MRR remain in the CSV. Only training metrics are
+shown; reaching 100% is a memorization check. Matplotlib runs headlessly on HPC.
+
+To plot an existing run without EEG, model weights or retraining:
+
+```bash
+PYTHONPATH=src python -m cl_behaviour plot --run /path/to/completed-tiny-fit --output /path/to/new-plots
+```
+
+This verifies the saved history checksum and writes PNG plus source provenance. Tiny-fit `30020628` passed
+all six arms/readouts; both retrieval directions first reached perfect assigned matching at logged step 25.
+This establishes tiny-set fitting, not held-out performance. Generalization training is the next stage.
+
+
+## Within-person held-trial training (current step)
+
+The `train` command fits **one shared pair of heads per readout/arm** across all 82 development participants.
+Candidate galleries remain within one participant and one relative window offset. This is known-person,
+held-out-trial retrieval, not unseen-person transfer. Combined closed1/closed2 and the existing trial splits
+are unchanged. No tiny-fit weights or normalization statistics are reused.
+
+Deploy the package and explicitly copy the ignored `hpc/circling_train.lsf`, then run:
+
+```bash
+mkdir -p outputs errors
+bsub < src/cl_behaviour/hpc/circling_train.lsf
+```
+
+Defaults point to features `30020418` and split `30017853`. `FEATURES`, `SPLIT_RUN`, `READOUTS`, `EPOCHS`, `SEED`,
+`GROUPS_PER_UPDATE`, `LEARNING_RATE`, `WEIGHT_DECAY`, and `TEMPERATURE` can override the wrapper settings.
+The job requests one V100, 10 GB memory per allocated slot, and eight hours (a budget, not a measured runtime).
+Features remain in CPU memory and each small gallery is transferred to the GPU for its head computation.
+The full readout bank is approximately 2.1 GB before other arrays/intermediates; readouts run sequentially.
+CPU is supported but the full head comparison is more suitable for the GPU wrapper.
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 python -m cl_behaviour train \
+  --features /path/to/features --run /path/to/split --output /path/to/new-training --device cuda
+```
+
+### Exact first experiment
+
+| Setting | Implemented value |
+|---|---|
+| Conditions/target | Combined closed1 + closed2; self movement |
+| Offsets | 0,4,8,12 seconds of cropped trial; four non-overlapping windows, 16 s support |
+| EEG readouts | pooled 200, temporal 800, full 51,200; saved frozen LaBraM normalization |
+| Movement | Cached 50 Hz sine/cosine, 2 × 200 samples per matching window, flattened to 400 |
+| Heads | Separate bias-free linear projections to 32 dimensions, followed by cosine normalization |
+| Fitted preprocessing | Per participant and modality, training-only mean and scalar RMS vector norm |
+| Loss | Symmetric hard-target cosine cross entropy, temperature .1 |
+| Optimizer | AdamW LR .001, weight decay .01, gradient clipping 5 |
+| Budget | 20 epochs, four independent galleries averaged per update |
+| Controls | Matched true/fixed shuffled-training-trial arms from identical fresh heads |
+| Checkpoint | Highest eligible-dyad macro validation EEG→movement MRR; epoch zero included; earliest tie |
+
+Means/scales pool **all training trials at the four selected offsets**, separately for each participant and modality.
+The same statistics are applied to that participant's validation windows. No validation values influence fitting.
+Statistics are saved per readout in `normalization.pt`. These are familiar/calibrated participants; using their
+training means is not zero-calibration population transfer.
+
+For each participant/offset, a complete training gallery has 19–24 trials, so each query has **18–23 negatives**.
+Validation galleries have 6–8 candidates, with their actual chance top-1 and chance MRR retained. Four matrices
+per update means four separate losses, not a merged cross-person candidate pool. Every training gallery is
+visited once per epoch. Here that is 328 galleries, 82 updates/epoch, 1,640 updates per arm at 20 epochs.
+The sampled epoch orders and per-person shuffled trial permutations are serialized. Each person's permutation
+is reused at all four offsets, and the schedule/mapping is identical across readouts and arms. Shuffled validation
+always retains the **true** correspondence. Training curves also report true correspondence; assigned training
+loss is labeled separately so shuffled-arm optimization is not confused with genuine matching.
+
+All train/validation galleries are evaluated at initialization and after each epoch. Each gallery averages its
+queries; offsets/members are averaged within each dyad and eligible dyads are weighted equally. Pair 2020
+contributes to training but is excluded from checkpoint-selection/main summaries, matching its saved flag.
+Detailed metrics retain pair 2020 and separate closed1/closed2 query scores **against the same mixed gallery**.
+These conditional scores are not a separate-condition retrieval experiment.
+
+The initial weights can win if training degrades validation. Each arm/readout independently saves best and last
+heads. `selected_true_readout` uses validation MRR among the true arms, with earlier readout order breaking ties.
+This is exploratory validation selection over three representations, not a statistical significance claim.
+The larger full head has more parameters, so comparisons are not parameter-matched. Soft movement-similarity
+or temporal targets, ridge baselines, whole-trial aggregation and test scoring remain subsequent experiments.
+
+### Outputs and isolation
+
+The self-contained reader verifies feature/split hashes, complete permitted row coverage, gallery order and
+membership, source indices, normalization and movement slices. It opens only the already encoded development
+feature arrays. Within-dyad test and reserved dyads have no features accessed. No foundation-model checkpoint,
+raw EEG, tiny-fit weights, adjacent-project modules or external training artifacts are loaded.
+
+`config.json` is written before fitting; `training.json` is written only after all arms/readouts finish.
+Each `<readout>/<arm>/` contains `history.csv`, a PNG-only `learning_curves.png` refreshed every epoch,
+`best_heads.pt`, `last_heads.pt`, `selection.json`, and best/last per-gallery metric CSVs.
+The plot shows assigned training versus true validation loss, and true-correspondence train/validation top-1
+and MRR with their own chance lines. Different gallery sizes mean raw training/validation losses and accuracies
+are not directly comparable difficulty measures. Root `comparison.csv` summarizes selected checkpoints.
+Readout directories also save fitted statistics, exact galleries/permutations and epoch schedules.
+
+Bring back **training.json, comparison.csv and each arm's history.csv/learning_curves.png**. No test evaluation
+should be run while choosing the first model. If validation stays near chance, inspect true/shuffled differences,
+condition-specific metrics and learning curves before increasing model complexity or changing the loss.

@@ -184,3 +184,16 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   crop offset 0, pooled/temporal/full readouts, 500 steps, matched true/shuffled arms. No held-out materialization
   or scoring. Tiny-set mean/scalar normalization and heads are diagnostic-only. CPU wrapper:
   `src/cl_behaviour/hpc/circling_tiny_fit.lsf` (copy ignored file explicitly). Review tiny_fit.json/comparison.csv/history.csv.
+
+* Plot completed tiny fits with `PYTHONPATH=src python -m cl_behaviour plot --run <tiny-fit> --output <new-plots>`.
+  Verifies history hash; no model/data loading. New tiny fits automatically refresh history every 25 steps,
+  PNG loss/retrieval curves every 100 steps and at arm endpoints, and save PNG only. All plotting is local
+  to cl_behaviour and headless; curves distinguish shuffled assigned matches from original correspondence.
+
+* Within-person generalization: `PYTHONPATH=src OMP_NUM_THREADS=1 python -m cl_behaviour train --features <features>
+  --run <split> --output <new-run> --device cuda`. Self-contained shared linear heads; pooled/temporal/full,
+  combined closed/self, offsets 0/4/8/12, participant training-only centering/scalar scaling, matched true/shuffled
+  arms and fixed per-person galleries. Four independent gallery losses/update; 20 epochs; LR .001/decay .01/temp .1.
+  Select dyad-macro validation MRR including epoch zero, excluding pair 2020 from main summaries; never access test
+  or reserved features. Save exact schedules/mappings/stats, best/last heads and PNG-only live epoch plots.
+  GPU wrapper `src/cl_behaviour/hpc/circling_train.lsf` is ignored: copy explicitly. Tests: tests/cl_behaviour/test_training.py.

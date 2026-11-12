@@ -328,3 +328,13 @@ The training-only `tiny-fit` command now selects eight real trials from one deve
 window offset. It compares pooled, temporal and full readouts with matched true/shuffled linear heads, using
 selected-training-only centering and scalar normalization. No validation/test feature slices are fitted or scored.
 See README for the CPU job and pass criteria. Real-data results are pending; generalization training remains next.
+
+
+## First held-trial implementation
+
+Within-person held-trial training is implemented; the README's exact contract supersedes the earlier tentative
+64-dimensional head and optimization settings. Fresh 32-dimensional heads preserve the successful tiny-fit
+architecture, with LR .001/decay .01 for generalization. Pooled/temporal/full readouts run matched true/shuffled
+arms; participant means/scales use only training windows at offsets 0/4/8/12. Epoch-zero-inclusive validation MRR
+selects checkpoints. PNG-only curves refresh each epoch. No test evaluation, soft-target loss, ridge comparator
+or whole-trial aggregation is implemented in this increment. Those remain explicit subsequent comparisons.

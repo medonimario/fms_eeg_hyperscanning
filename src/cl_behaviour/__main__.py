@@ -49,7 +49,46 @@ def main() -> None:
     )
     command.add_argument("--steps", type=int, default=500)
     command.add_argument("--seed", type=int, default=42)
+    command = commands.add_parser("plot", help="Plot a completed tiny-fit history without retraining.")
+    command.add_argument("--run", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("train", help="Train shared heads on fixed within-person galleries.")
+    command.add_argument("--features", type=Path, required=True)
+    command.add_argument("--run", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument(
+        "--readouts", nargs="+", choices=("pooled", "temporal", "full"), default=["pooled", "temporal", "full"]
+    )
+    command.add_argument("--epochs", type=int, default=20)
+    command.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    command.add_argument("--seed", type=int, default=42)
+    command.add_argument("--groups-per-update", type=int, default=4)
+    command.add_argument("--learning-rate", type=float, default=0.001)
+    command.add_argument("--weight-decay", type=float, default=0.01)
+    command.add_argument("--temperature", type=float, default=0.1)
     args = parser.parse_args()
+    if args.stage == "train":
+        from .training import run_training
+
+        run_training(
+            args.features,
+            args.run,
+            args.output,
+            tuple(args.readouts),
+            args.epochs,
+            args.device,
+            args.seed,
+            args.groups_per_update,
+            args.learning_rate,
+            args.weight_decay,
+            args.temperature,
+        )
+        return
+    if args.stage == "plot":
+        from .plotting import plot_tiny_run
+
+        plot_tiny_run(args.run, args.output)
+        return
     if args.stage == "tiny-fit":
         from .tiny_fit import run_tiny_fit
 

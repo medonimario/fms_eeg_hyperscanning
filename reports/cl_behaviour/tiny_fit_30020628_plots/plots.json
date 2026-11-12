@@ -1,0 +1,6 @@
+{
+  "source": "/Users/mamed/Work/FMs_EEG_hyperscanning/cl_behaviour/cl_behaviour_tiny_fit_30020628",
+  "history_sha256": "cfe8bb7658b477b6a9be5bf859d2a3d7b35e0898e5e37944817f3814db9f25b2",
+  "tiny_fit_sha256": "e2c238523264c1fc6f3b26e6bcb7523638ce0133117578cb1199ed2043c23792",
+  "scope": "Training-only tiny-fit curves; no model loading or retraining"
+}
