@@ -3,11 +3,6 @@
 import argparse
 from pathlib import Path
 
-from hyperscanning_contrastive.data import resolve_source
-
-from .data import prepare
-from .splits import PROFILES, split_cache
-
 
 def main() -> None:
     """Prepare signals or freeze a metadata-only retrieval protocol."""
@@ -24,7 +19,7 @@ def main() -> None:
     command.add_argument("--cohort-manifest", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
     command.add_argument("--seed", type=int, default=2042)
-    command.add_argument("--profile", choices=PROFILES, default="combined-closed")
+    command.add_argument("--profile", choices=("combined-closed", "separate-closed", "open"), default="combined-closed")
     command = commands.add_parser("features", help="Extract frozen EEG tokens and aligned movement features.")
     command.add_argument("--cache", type=Path, required=True)
     command.add_argument("--run", type=Path, required=True, help="Completed split directory.")
@@ -37,15 +32,59 @@ def main() -> None:
     command.add_argument(
         "--smoke", action="store_true", help="Two training trials from the first development dyad only."
     )
+    command = commands.add_parser("controls", help="Run self-contained synthetic correspondence checks on CPU.")
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    command.add_argument("--steps", type=int, default=250)
+    command = commands.add_parser("tiny-fit", help="Memorize one training-only real-feature gallery on CPU.")
+    command.add_argument("--features", type=Path, required=True)
+    command.add_argument("--run", type=Path, required=True, help="Approved split directory.")
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--pairs", type=int, default=8)
+    command.add_argument("--group", type=int)
+    command.add_argument("--member", choices=("a", "b"), default="a")
+    command.add_argument("--offset", type=int, choices=range(0, 15, 2), default=0)
+    command.add_argument(
+        "--readouts", nargs="+", choices=("pooled", "temporal", "full"), default=["pooled", "temporal", "full"]
+    )
+    command.add_argument("--steps", type=int, default=500)
+    command.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if args.stage == "tiny-fit":
+        from .tiny_fit import run_tiny_fit
+
+        run_tiny_fit(
+            args.features,
+            args.run,
+            args.output,
+            args.pairs,
+            args.group,
+            args.member,
+            args.offset,
+            tuple(args.readouts),
+            args.steps,
+            args.seed,
+        )
+        return
+    if args.stage == "controls":
+        from .controls import run_controls
+
+        run_controls(args.output, tuple(args.seeds), args.steps)
+        return
     if args.stage == "features":
         from .features import extract_features
 
         extract_features(args.cache, args.run, args.output, args.checkpoint, args.device, args.batch_size, args.smoke)
         return
     if args.stage == "split":
+        from .splits import split_cache
+
         split_cache(args.cache, args.cohort_manifest, args.output, args.seed, args.profile)
         return
+    from hyperscanning_contrastive.data import resolve_source
+
+    from .data import prepare
+
     directory = resolve_source(args.data_dir)
     bad = args.bad_segments or directory.parent / "dict_with_short_bad_epochs.pickle"
     prepare(directory, args.phase, bad, args.output, args.stage == "prepare")

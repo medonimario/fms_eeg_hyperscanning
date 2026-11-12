@@ -171,3 +171,16 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   Whole permitted-dyad files are hashed; unused/test rows are never encoded and reserved-dyad arrays never opened.
   Wrapper `src/cl_behaviour/hpc/circling_features.lsf` defaults to SMOKE=1; use SMOKE=0 for full extraction after
   review. Copy this ignored wrapper explicitly. See README for axes, resampling and provenance contracts.
+
+* Run self-contained synthetic EEG–behaviour correspondence checks with `PYTHONPATH=src OMP_NUM_THREADS=1
+  OPENBLAS_NUM_THREADS=1 python -m cl_behaviour controls --output <new-controls>`. Defaults: three seeds,
+  symmetric hard-target loss, matched true/shuffled training, held-out eight-candidate galleries and independent
+  validation-label null. No EEG, checkpoint, or adjacent-project imports. Outputs controls.json/history.csv and
+  fixed shuffled mappings; failed gates exit nonzero. Tests: `python -m pytest tests/cl_behaviour/test_controls.py`.
+
+* Real-feature memorization diagnostic: `PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m
+  cl_behaviour tiny-fit --features <features-run> --run <split-run> --output <new-run>`. Self-contained local
+  reader/loss/heads; no adjacent-project imports. Defaults: eight training trials, first eligible dyad/member a,
+  crop offset 0, pooled/temporal/full readouts, 500 steps, matched true/shuffled arms. No held-out materialization
+  or scoring. Tiny-set mean/scalar normalization and heads are diagnostic-only. CPU wrapper:
+  `src/cl_behaviour/hpc/circling_tiny_fit.lsf` (copy ignored file explicitly). Review tiny_fit.json/comparison.csv/history.csv.

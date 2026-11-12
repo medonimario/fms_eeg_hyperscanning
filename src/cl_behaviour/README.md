@@ -7,8 +7,8 @@ Updated 12 November 2026.
 | 1. Research and design | First draft complete: [research](RESEARCH.md), [plan](PLAN.md) |
 | 2. EEG–movement audit and preparation | Completed on cluster; preparation 30004124 metadata verified locally |
 | 3. Trial splits and fixed retrieval galleries | Split 30017853 verified; combined closed conditions |
-| 4. Frozen LaBraM and movement features | Implemented; cluster smoke check next; centering deferred to training |
-| 5. Small contrastive heads, regression baseline and controls | Planned |
+| 4. Frozen LaBraM and movement features | Full extraction 30020418 verified; centering deferred to training |
+| 5. Small contrastive heads, regression baseline and controls | Synthetic controls passed; training-only tiny-fit implemented, cluster run next |
 | 6. Whole-trial retrieval and matched mTRF comparison | Planned |
 | 7. Partner-specific and unseen-dyad experiments | Later |
 
@@ -248,3 +248,116 @@ hard correspondence with fixed movement-similarity soft targets and, separately,
 an explicitly defined continuous trial. Do not treat equal offsets in different trials as temporal neighbors,
 or infer similarity from closed1/closed2 labels alone. Preserve held-out galleries and keep target construction
 independent of evolving learned heads. The current cache preserves the information needed without choosing a loss.
+
+## Synthetic correspondence controls
+
+This step is entirely inside `cl_behaviour`: `contrastive.py` implements symmetric hard-target cosine contrastive
+loss and tie-aware retrieval, `models.py` implements separate linear EEG/movement heads, and `controls.py` creates
+and fits synthetic data. The CLI imports preparation/extraction code lazily, so this command does not import
+`hyperscanning_contrastive`, `labram_classification`, `mTRF`, MNE or LaBraM. Existing data/extraction adapters are
+unchanged; no code in adjacent projects is modified. Only NumPy and PyTorch are needed for this runner.
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m cl_behaviour controls \
+  --output /path/to/new-controls
+```
+
+No cluster data or GPU is required. Defaults use seeds 42/43/44 and 250 updates. Optional `--seeds` and `--steps`
+change the diagnostic budget; pass thresholds stay fixed. Outputs must go to a new directory.
+
+Each seed generates 256 training and 128 held-out synthetic trials from a 16-dimensional latent signal.
+Independent noisy linear transformations produce 48-dimensional EEG-like and 32-dimensional movement-like
+features, with modality offsets. Means are fitted on training rows only. The same generative relationship
+applies to the held-out trials, which form 16 fixed eight-candidate galleries.
+
+Two bias-free heads project to 16 dimensions. Training uses the entire 256-trial gallery (255 negatives/query),
+cosine normalization, temperature .1, symmetric cross entropy, AdamW with LR .01/decay .01 and gradient clipping
+at 5. A matched arm has identical initialization and optimization but a fixed shuffled training correspondence.
+Both arms are evaluated against the true held-out correspondence. The budget is fixed; validation does not
+select a checkpoint. This full-gallery synthetic setup is a code check, not the proposed real-data batch size.
+
+The pass gate requires every true-pair seed to exceed 90% held-out top-1 in both directions, decrease loss, and
+have nonzero finite gradients and parameter updates. An independent validation-label null draws 512 uniform
+within-gallery permutations, including fixed points. Its mean top-1 and MRR must be within six Monte Carlo
+standard errors of their theoretical chance values. This null is an engineering check, not an EEG significance
+test. Shuffled-training scores are reported, not required to land at chance or fail to memorize.
+
+Retrieval uses uniform tie handling: top-1 shares credit across tied best candidates; MRR averages reciprocal
+ranks across the tied block. Explicit positive-column permutations support candidate reordering without changing
+loss/metrics. One-to-one pairing and finite temperatures/inputs are enforced. Soft-target weighting remains a
+separate future experiment; this establishes the hard-target reference first.
+
+Outputs are `controls.json` (configuration, pass/fail gates, per-arm metrics, hashes), `history.csv` (both retrieval
+directions and loss), and `shuffled_mappings.json`. A failed completed experiment writes `passed=false` and exits
+with an error; an exception during execution leaves no completion report. No synthetic head is reused for real EEG.
+
+The initial local three-seed run achieved 100% held-out retrieval in both directions. Independently permuted
+validation correspondences averaged approximately 12.3%, versus 12.5% chance. These results establish that the
+small-head training/metric implementation can recover a known relationship, not that EEG predicts movement.
+Next is a **training-only real-data tiny-fit diagnostic** using the completed feature cache.
+
+## Real-feature tiny-fit diagnostic (current step)
+
+This tests whether separate EEG/movement heads can **memorize a small real training gallery**. It does not
+measure generalization. The runner, feature reader, loss and heads live in `cl_behaviour`; this command has no
+imports from the other contrastive project, MNE or LaBraM, and never loads foundation-model weights.
+
+Deploy the updated package and explicitly copy the Git-ignored `hpc/circling_tiny_fit.lsf`, then submit:
+
+```bash
+mkdir -p outputs errors
+bsub < src/cl_behaviour/hpc/circling_tiny_fit.lsf
+```
+
+The CPU wrapper defaults to feature run `30020418` and split `30017853`. Override `FEATURES` or `SPLIT_RUN` as
+needed. No feature re-extraction is required. The wrapper uses eight trials, member a, crop offset zero and
+500 steps; `PAIRS`, `MEMBER`, `OFFSET`, and `STEPS` override those defaults.
+
+Equivalent command:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m cl_behaviour tiny-fit \
+  --features /path/to/features --run /path/to/split --output /path/to/new-tiny-fit
+```
+
+Selection is deterministic: the first main-summary-eligible development dyad with enough training trials,
+then ascending repetition/condition order. `--group` can explicitly select a dyad. Both closed conditions are
+eligible. It uses only one participant and one four-second offset (default 0); each candidate is a distinct
+trial. The other participant, remaining offsets, validation and test are not scored or fitted. The default
+gallery has seven negatives per query and 12.5% nominal chance. Pair 2020 is not eligible for this diagnostic.
+
+The same gallery is used for three readouts (`--readouts pooled temporal full`):
+
+| Readout | EEG input dimension | Construction |
+|---|---:|---|
+| pooled | 200 | Mean across channel/time tokens, then saved frozen pooling normalization |
+| temporal | 800 | Mean across channels, normalize each time token, preserve four ordered patches |
+| full | 51,200 | Normalize each token, then flatten channel-major/time-minor |
+
+Movement is the matching self sine/cosine window, flattened to 400 features. Each modality subtracts the mean
+of **only the selected training examples** and divides by a scalar RMS vector norm. This scales the typical
+input vector length to one, without featurewise standardization. Means/scales are saved per readout and are
+specific to this diagnostic; they must not become the normalization for a later generalization experiment.
+
+Each readout uses independent bias-free linear heads into 32 dimensions, cosine normalization, temperature .1,
+symmetric hard-target cross entropy, AdamW LR .01 with zero weight decay, and gradient clipping at 5. Each
+update uses the entire tiny gallery. True and fixed shuffled-pair arms start from identical heads and have the
+same fixed update budget. Shuffling is a permutation of complete trial correspondences within this one offset;
+it may include fixed points. No validation-based tuning or early stopping occurs.
+
+The success flag requires **100% assigned-pair top-1 in both directions**, decreasing loss and nonzero gradients
+and updates in every arm/readout. A shuffled arm is expected to memorize its own assigned pairs too; it is not
+supposed to be at chance on those pairs. We additionally report its score against the original true pairing.
+Failure is saved as `passed=false` for inspection, rather than automatically increasing capacity or changing data.
+An execution error leaves no completion marker. Never reuse the resulting heads for validation or test scoring.
+
+The reader verifies feature/split hashes and original row metadata, rejects smoke caches and forbidden rows,
+checks exact feature indices and matching time slices, and memory-maps only the selected dyad files. Complete
+files are hashed (including their validation bytes), but only selected participant/training slices are
+materialized. NaNs deliberately placed in unselected rows/member are covered by regression tests.
+
+Outputs: `tiny_fit.json`, `comparison.csv`, `history.csv`, `selected_windows.csv`, per-readout normalization,
+per-arm final heads and score matrices. Scores have EEG queries as rows, movement candidates as columns;
+`shuffled_positive_columns` specifies each shuffled row's assigned positive. Logs show both assigned retrieval
+directions, MRR, original-pair top-1 and loss. Bring back **tiny_fit.json, comparison.csv and history.csv**.
+The large feature arrays can remain on HPC.

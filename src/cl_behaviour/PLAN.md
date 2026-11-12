@@ -312,3 +312,19 @@ Frozen full-token and 50 Hz sin/cos extraction is implemented; see README for th
 No fitting, centering or loss is included. The user-approved later soft-target inspiration is
 [arXiv:2610.09287](https://arxiv.org/html/2610.09287v1), whose frozen-teacher similarities should be distinguished
 from a purely temporal weighting rule. Compare these explicitly during training rather than changing this cache.
+
+
+## Synthetic-control implementation update
+
+Self-contained loss, metrics, linear heads and CPU synthetic runner are implemented in `cl_behaviour`.
+The default three-seed run passed known-correspondence generalization and independent held-out pairing nulls.
+No real-data model was fitted. The next increment is the real training-only tiny-fit check; soft targets and
+full real-data training remain later work. See README for exact synthetic protocol and reproduction command.
+
+
+## Real tiny-fit implementation update
+
+The training-only `tiny-fit` command now selects eight real trials from one development participant and a single
+window offset. It compares pooled, temporal and full readouts with matched true/shuffled linear heads, using
+selected-training-only centering and scalar normalization. No validation/test feature slices are fitted or scored.
+See README for the CPU job and pass criteria. Real-data results are pending; generalization training remains next.
