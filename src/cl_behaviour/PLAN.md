@@ -304,3 +304,11 @@ token reconstruction and synthetic/tiny-fit outcomes. Only then launch Stage 2's
 Before that increment, the unresolved inputs are the authoritative baseline-run path, phase-file path,
 available final-evaluation cohort, and approval of the new-project artifact policy after the audit. The draft
 assumes Self→Full→Partner and calibrated known-person development; these are proposed decisions for discussion.
+
+
+## Feature-stage implementation update
+
+Frozen full-token and 50 Hz sin/cos extraction is implemented; see README for the current smoke/full workflow.
+No fitting, centering or loss is included. The user-approved later soft-target inspiration is
+[arXiv:2610.09287](https://arxiv.org/html/2610.09287v1), whose frozen-teacher similarities should be distinguished
+from a purely temporal weighting rule. Compare these explicitly during training rather than changing this cache.

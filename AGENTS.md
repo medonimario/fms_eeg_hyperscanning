@@ -163,3 +163,11 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   (up to 24/8/8 trials from 12/4/4 repetitions). `separate-closed` and `open` preserve assignments. Galleries
   retain original condition labels and actual K/chance; pair 2020 is excluded from main summaries. No signal loading or statistics fitting.
   CPU wrapper: `src/cl_behaviour/hpc/circling_split.lsf` (Git-ignored; copy explicitly). See package README.
+
+* Extract behaviour features with `PYTHONPATH=src python -m cl_behaviour features --cache <prepared-cache>
+  --run <split-run> --checkpoint models/labram-base.pth --device cuda --output <new-features>`. Start with `--smoke`
+  (two training trials, `smoke.json` only). Full runs encode train/validation only, save frozen pre-fc_norm tokens
+  and whole-trial 50 Hz sin/cos movement, with all eight aligned windows. No centering or learned statistics yet.
+  Whole permitted-dyad files are hashed; unused/test rows are never encoded and reserved-dyad arrays never opened.
+  Wrapper `src/cl_behaviour/hpc/circling_features.lsf` defaults to SMOKE=1; use SMOKE=0 for full extraction after
+  review. Copy this ignored wrapper explicitly. See README for axes, resampling and provenance contracts.

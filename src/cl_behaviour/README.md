@@ -6,8 +6,8 @@ Updated 12 November 2026.
 |---|---|
 | 1. Research and design | First draft complete: [research](RESEARCH.md), [plan](PLAN.md) |
 | 2. EEG–movement audit and preparation | Completed on cluster; preparation 30004124 metadata verified locally |
-| 3. Trial splits and fixed retrieval galleries | Implemented; run on cluster with the original cohort manifest |
-| 4. Frozen LaBraM extraction and training-only centering | Planned |
+| 3. Trial splits and fixed retrieval galleries | Split 30017853 verified; combined closed conditions |
+| 4. Frozen LaBraM and movement features | Implemented; cluster smoke check next; centering deferred to training |
 | 5. Small contrastive heads, regression baseline and controls | Planned |
 | 6. Whole-trial retrieval and matched mTRF comparison | Planned |
 | 7. Partner-specific and unseen-dyad experiments | Later |
@@ -169,3 +169,82 @@ future training uses a shared model or participant-specific models.
 
 Reuse preparation `30004124`; no signal preparation is needed. Run the updated split wrapper into a new output
 directory. Earlier open split outputs remain valid for reproducing that profile, but are not the new default.
+
+## Paired feature extraction (current step)
+
+The reviewed split `30017853` has 41 development dyads, 952 training and 322 validation paired trials.
+That gives 20,384 participant-windows across all eight offsets. The 317 within-dyad test trials and 11 reserved
+dyads are not encoded. Pair 2020 remains flagged for exclusion from later main summaries.
+
+Deploy the package and explicitly copy the ignored `hpc/circling_features.lsf`. Start with:
+
+```bash
+mkdir -p outputs errors
+bsub < src/cl_behaviour/hpc/circling_features.lsf
+```
+
+The default `SMOKE=1` processes two deterministic **training-only** trials from the first development dyad,
+including both people and all eight offsets. Review `smoke.json`, `diagnostics.csv`, `trials.csv`, and `windows.csv`.
+It checks real-array integrity, selected-signal finiteness, token dimensions, pooled reconstruction and repeated
+inference. This is an extraction check, not a tiny-set learning or retrieval result. A smoke directory deliberately
+has no `features.json`, so it cannot be mistaken for a full training feature bank.
+
+After that check passes, submit the full training/validation extraction:
+
+```bash
+SMOKE=0 bsub < src/cl_behaviour/hpc/circling_features.lsf
+```
+
+The wrapper uses preparation `30004124`, split `30017853`, and `models/labram-base.pth`. Override `CACHE`,
+`SPLIT_RUN`, `CHECKPOINT`, `OUTPUT_ROOT`, or `BATCH_SIZE` as needed. It requests one V100 and four hours (a budget,
+not a measured runtime). Batch size 8 means 8 paired windows / 16 individual EEG inputs. Reduce it for GPU memory.
+Full tokens alone require approximately 4.17 GB; allow additional space for movement arrays and metadata.
+
+Equivalent direct invocation:
+
+```bash
+PYTHONPATH=src python -m cl_behaviour features --cache /path/to/preparation \
+  --run /path/to/split --checkpoint models/labram-base.pth --device cuda \
+  --batch-size 8 --smoke --output /path/to/new-smoke
+```
+
+Remove `--smoke` for full extraction. Never reuse an output directory; failure leaves no completion marker.
+
+### Feature contracts
+
+- Frozen original pretrained LaBraM, evaluation/inference mode, float32, microvolts divided by 100 exactly once.
+  No additional EEG filtering or scaling. Each output token array has shape `(paired_windows, 2, 64, 4, 200)`.
+  Tokens are channel-major/time-minor, before `fc_norm`, with CLS excluded. Reconstructing original pooled
+  features as `fc_norm(mean(tokens))` is checked on every forward call. `pooling_norm.npz` saves its weight,
+  bias and epsilon so pooled/temporal/spatial/full readouts can be derived without rerunning LaBraM.
+- Self movement: sine then cosine of the original phase, followed by `scipy.signal.resample_poly` with ratio
+  5/24, Kaiser beta 5 and line padding. Filtering is applied to each complete 18-second trial independently,
+  never across trials or splits. Outputs are float32 `(paired_trials, 2 members, 2 components, 900 samples)`
+  at 50 Hz. Wrapped angles are never resampled. Filtered components are not renormalized onto the unit circle.
+- `windows.csv` maps each paired EEG feature row to a movement trial and a half-open 200-sample slice at the
+  same offset. All eight windows remain available; original condition, repetition, absolute event metadata,
+  participant-axis convention, eligibility and split identities are preserved. Overlaps are not independent trials.
+- No centering, standardization, projections, losses, soft targets or trainable behaviour encoder are fitted.
+  Raw features are reusable. Participant-specific training means remain the proposed initial centering policy,
+  to be fitted for the selected readout and training offsets during the training step.
+
+Preparation and split manifests are hashed and the split/gallery/window contracts independently reconstructed.
+Only permitted dyad files are opened. Whole-file hash verification necessarily reads bytes belonging to unused
+trials within those dyads; only selected training/validation slices are materialized for feature computation and
+checked finite. No test trial is forwarded; no reserved-dyad signal file is opened.
+
+Full outputs include `features.json`, `diagnostics.csv`, `trials.csv`, `windows.csv`, `pooling_norm.npz` and
+per-dyad token/movement arrays. Completion records input/output hashes, checkpoint identity, normalization,
+resampling, dimensions, software versions, counts and reconstruction error. Bring back the JSON and diagnostic
+CSV first; arrays can stay on HPC. Successful extraction enables the next **synthetic/tiny-fit and CL training**
+step; it does not establish EEG-to-movement predictability.
+
+### Later soft-target training experiment
+
+The user suggested [Truong et al., arXiv:2610.09287, Appendix B](https://arxiv.org/html/2610.09287v1).
+Their soft-target CLIP uses similarities between centered, frozen video-teacher embeddings; temporal closeness
+is not itself the weighting formula. A temporal buffer is a separate mechanism. For movement, later compare
+hard correspondence with fixed movement-similarity soft targets and, separately, time-distance weighting within
+an explicitly defined continuous trial. Do not treat equal offsets in different trials as temporal neighbors,
+or infer similarity from closed1/closed2 labels alone. Preserve held-out galleries and keep target construction
+independent of evolving learned heads. The current cache preserves the information needed without choosing a loss.
