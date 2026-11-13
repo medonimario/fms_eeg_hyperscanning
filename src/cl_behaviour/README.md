@@ -396,12 +396,11 @@ mkdir -p outputs errors
 bsub < src/cl_behaviour/hpc/circling_train.lsf
 ```
 
-Defaults point to features `30020418` and split `30017853`. `FEATURES`, `SPLIT_RUN`, `READOUTS`, `EPOCHS`, `SEED`,
-`GROUPS_PER_UPDATE`, `LEARNING_RATE`, `WEIGHT_DECAY`, and `TEMPERATURE` can override the wrapper settings.
-The job requests one V100, 10 GB memory per allocated slot, and eight hours (a budget, not a measured runtime).
-Features remain in CPU memory and each small gallery is transferred to the GPU for its head computation.
+Defaults point to features `30020418` and split `30017853`. The wrapper now runs the six-job CPU sweep
+documented below; the direct CLI remains available for individual CPU or GPU runs.
+Features remain in CPU memory; GPU CLI runs transfer each small gallery to the GPU for head computation.
 The full readout bank is approximately 2.1 GB before other arrays/intermediates; readouts run sequentially.
-CPU is supported but the full head comparison is more suitable for the GPU wrapper.
+The CPU sweep uses one core and 10 GB per job.
 
 ```bash
 PYTHONPATH=src OMP_NUM_THREADS=1 python -m cl_behaviour train \
@@ -468,3 +467,104 @@ Readout directories also save fitted statistics, exact galleries/permutations an
 Bring back **training.json, comparison.csv and each arm's history.csv/learning_curves.png**. No test evaluation
 should be run while choosing the first model. If validation stays near chance, inspect true/shuffled differences,
 condition-specific metrics and learning curves before increasing model complexity or changing the loss.
+
+
+### Six-job CPU optimization sweep
+
+`hpc/circling_train.lsf` now submits `cl_behaviour_sweep[1-6]%6`: up to six concurrent CPU jobs, each with
+one XeonGold6226R core, 10 GB memory and a four-hour limit. Each task sequentially runs temporal and full
+readouts, both with true and shuffled arms. The grid is:
+
+| Array index | Learning rate | Weight decay |
+|---|---:|---:|
+| 1 | .0001 | .01 |
+| 2 | .0001 | .1 |
+| 3 | .0003 | .01 |
+| 4 | .0003 | .1 |
+| 5 | .001 | .01 |
+| 6 | .001 | .1 |
+
+Submit once with `bsub < src/cl_behaviour/hpc/circling_train.lsf` after creating `outputs/` and `errors/`.
+Copy this Git-ignored wrapper explicitly. Logs include both job ID and array index. Every task writes a fresh
+`cl_behaviour_sweep_JOBID_INDEX_lrVALUE_wdVALUE` directory under `OUTPUT_ROOT`.
+
+All tasks default to seed 42, 20 epochs, four galleries/update and temperature .1, preserving matched
+initialization, schedules, split and trial shuffles. Validation MRR still selects checkpoints, including epoch
+zero; this wrapper does not change evaluation frequency (once per epoch). No test scoring is introduced.
+`FEATURES`, `SPLIT_RUN`, `READOUTS`, `EPOCHS`, `SEED`, `GROUPS_PER_UPDATE` and `TEMPERATURE` can be overridden
+uniformly for the array. Learning rate and weight decay are fixed by array index, not environment overrides.
+Bring back each job's training.json/comparison.csv and learning curves after completion.
+
+
+## Fixed-target ridge diagnostic (current step)
+
+The self-contained `ridge` command compares **shared** versus **participant-specific** linear prediction from
+800-dimensional temporal LaBraM features to the 400-dimensional normalized movement sine/cosine window.
+This directly implements the agreed diagnostic; no learned movement head, CL objective, temperature, epochs,
+foundation-model loading or new feature extraction is used.
+
+Deploy the updated package and explicitly copy the Git-ignored `hpc/circling_ridge.lsf`, then submit:
+
+```bash
+mkdir -p outputs errors
+bsub < src/cl_behaviour/hpc/circling_ridge.lsf
+```
+
+This is **one CPU job** running all four family/arm combinations and five regularization values. Defaults use
+feature run `30020418` and split `30017853`, one core/10 GB and a four-hour budget. `FEATURES`, `SPLIT_RUN`,
+`OUTPUT_ROOT`, `LAMBDAS` and `SEED` can override the wrapper. Seed 42 reproduces the CL shuffled trial mapping;
+ridge itself is deterministic and does not have random initialization or a training schedule.
+
+Equivalent command:
+
+```bash
+PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m cl_behaviour ridge \
+  --features /path/to/features --run /path/to/split --output /path/to/new-ridge
+```
+
+### Fitting and selection
+
+Reuse the exact FeatureBank contract: all development participants, combined closed conditions, offsets 0/4/8/12,
+training-only participant means and scalar RMS vector norms, and original fixed train/validation galleries.
+The normalizer is fitted once before any label shuffle, and saved. Reserved/test features are not accessed.
+
+Shared ridge minimizes the mean per-participant squared vector residual plus `lambda * ||W||_F^2`. Every
+participant receives equal total weight, regardless of retained-trial count. Individual ridge minimizes that
+person's mean squared vector residual plus the same penalty. Neither map has an intercept because inputs and
+targets have already been centered using training data. Matrix dimension is 800→400. The solver uses float64
+weighted eigendecomposition and positive regularization, with no explicit matrix inversion. It uses the dual
+form when examples are fewer than EEG dimensions; saved dual models contain their weighted training basis
+and coefficients, while shared models normally store the direct coefficient matrix.
+
+The prespecified lambda grid is `1e-5, 1e-4, 1e-3, 1e-2, 1e-1`. The normalized input has mean squared vector norm
+one, hence covariance trace one; this spans weak-to-strong penalties relative to that scaling. It is not the
+same numerical convention as an unnormalized sum-of-squares ridge implementation. All families and arms use
+this grid. Each selects **one global lambda** by dyad-macro validation MRR, excluding pair 2020 from the summary.
+Exact ties favor larger lambda. Individual participants do not get separate validation-tuned penalties.
+Pair 2020 remains in fitting and detailed outputs, as in CL.
+
+Cosine similarity compares the predicted normalized movement vector with each candidate's normalized movement.
+All reported retrieval is against true correspondence, including in the shuffled arm. Each fixed training-trial
+permutation is reused across offsets, exactly as in CL. We report true-target prediction MSE and assigned-target
+MSE separately; they differ only for shuffled training. The MSE is per component in normalized movement space,
+not a raw physical-unit error. A zero-vector prediction corresponds to the person's training mean. Its MSE is
+reported as a baseline; zero predictions yield equal cosine scores and tie-aware chance. Predicted sin/cos values
+are not projected back onto the unit circle. No alternative retrieval scorer is selected post hoc.
+
+### Outputs
+
+`ridge.json` is written only after all fits complete; `config.json` records the protocol before fitting.
+`regularization.csv` and PNG-only `regularization_curves.png` update after each lambda. The plot compares
+validation top-1, MRR and true-target prediction MSE for all families/arms. `comparison.csv` summarizes each
+family/arm's selected lambda. `normalization.pt` and `galleries.json` retain exact fitted preprocessing and
+candidate identities/shuffles.
+
+Each `<shared|participant>/<true|shuffled>/` saves `selection.json`, `best_models.pt`, `best_gallery_metrics.csv`,
+and `best_scores.npz`. Score-array keys are gallery IDs; rows and columns follow the `trial_ids` in galleries.json.
+Model tensors are safe to reload with `torch.load(..., weights_only=True)`; matrices are stored in float64.
+The reader checks the same hashes, eligibility, indices and timing as CL, and completion hashes all output artifacts.
+
+Bring back **ridge.json, comparison.csv, regularization.csv and regularization_curves.png**. A family selecting
+a boundary lambda is evidence to inspect, not an automatic instruction to expand the search. These baselines
+probe feature accessibility and participant sharing; they are not a pure loss ablation because the prediction
+target, parameterization and effective capacity differ from CL. No model is evaluated on final test data here.

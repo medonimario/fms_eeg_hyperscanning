@@ -338,3 +338,12 @@ architecture, with LR .001/decay .01 for generalization. Pooled/temporal/full re
 arms; participant means/scales use only training windows at offsets 0/4/8/12. Epoch-zero-inclusive validation MRR
 selects checkpoints. PNG-only curves refresh each epoch. No test evaluation, soft-target loss, ridge comparator
 or whole-trial aggregation is implemented in this increment. Those remain explicit subsequent comparisons.
+
+
+## Ridge diagnostic implementation
+
+Shared and participant-specific temporal-feature ridge retrieval is implemented, pending the real-data CPU run.
+The five-value lambda grid and exact normalization/objective/scorer are documented in README. Each family/arm
+selects one global lambda using validation MRR, with no test scoring. Prediction error, training-mean baseline,
+matched shuffled controls and per-gallery scores accompany retrieval. The structured projection remains a later
+proposal; it is not included in this increment.

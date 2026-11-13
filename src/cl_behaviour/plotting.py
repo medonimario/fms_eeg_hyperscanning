@@ -106,3 +106,43 @@ def plot_training_history(history: pd.DataFrame, output: Path, arm: str) -> None
     figure.savefig(temporary, format="png", dpi=150)
     temporary.replace(output / "learning_curves.png")
     plt.close(figure)
+
+
+def plot_ridge_history(history: pd.DataFrame, output: Path) -> None:
+    """Plot PNG-only validation retrieval against regularization for both ridge families."""
+    figure, axes = plt.subplots(1, 3, figsize=(14, 3.8), layout="constrained")
+    for family, color in (("shared", "#1675b6"), ("participant", "#df7d13")):
+        for arm, style in (("true", "-"), ("shuffled", "--")):
+            rows = history[(history.family == family) & (history.arm == arm)].sort_values("regularization")
+            if rows.empty:
+                continue
+            for axis, metric in zip(axes, ("top1", "mrr", "mse"), strict=True):
+                axis.plot(
+                    rows.regularization,
+                    rows[f"validation_{metric}"],
+                    color=color,
+                    linestyle=style,
+                    marker="o",
+                    markersize=3,
+                    label=f"{family}: {arm}",
+                )
+    for axis, metric in zip(axes, ("top1", "mrr", "mse"), strict=True):
+        if metric != "mse":
+            axis.axhline(history[f"validation_chance_{metric}"].iloc[0], color="gray", linestyle=":", label="Chance")
+        else:
+            axis.axhline(
+                history.validation_zero_prediction_mse.iloc[0], color="gray", linestyle=":", label="Training mean"
+            )
+        axis.set_xscale("log")
+        axis.set_xlabel("Regularization λ")
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    axes[0].set(title="Validation EEG → movement top-1", ylabel="Accuracy")
+    axes[0].yaxis.set_major_formatter(PercentFormatter(1))
+    axes[1].set(title="Validation MRR", ylabel="MRR")
+    axes[2].set(title="Normalized movement prediction error", ylabel="MSE (lower is better)")
+    figure.suptitle("Ridge diagnostic — dyad-macro validation scores; true correspondence")
+    temporary = output / ".regularization_curves.png"
+    figure.savefig(temporary, format="png", dpi=150)
+    temporary.replace(output / "regularization_curves.png")
+    plt.close(figure)

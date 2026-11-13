@@ -66,7 +66,18 @@ def main() -> None:
     command.add_argument("--learning-rate", type=float, default=0.001)
     command.add_argument("--weight-decay", type=float, default=0.01)
     command.add_argument("--temperature", type=float, default=0.1)
+    command = commands.add_parser("ridge", help="Shared and participant-specific fixed-target ridge retrieval.")
+    command.add_argument("--features", type=Path, required=True)
+    command.add_argument("--run", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--lambdas", type=float, nargs="+", default=[1e-5, 1e-4, 1e-3, 1e-2, 1e-1])
+    command.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if args.stage == "ridge":
+        from .ridge import run_ridge
+
+        run_ridge(args.features, args.run, args.output, tuple(args.lambdas), args.seed)
+        return
     if args.stage == "train":
         from .training import run_training
 

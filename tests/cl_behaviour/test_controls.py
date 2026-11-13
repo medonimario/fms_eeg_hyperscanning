@@ -84,6 +84,7 @@ sys.meta_path.insert(0, Block())
 import cl_behaviour.controls
 import cl_behaviour.tiny_fit
 import cl_behaviour.training
+import cl_behaviour.ridge
 import cl_behaviour.__main__
 sys.argv = ['cl_behaviour', 'controls', '--help']
 cl_behaviour.__main__.main()

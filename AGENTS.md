@@ -196,4 +196,16 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   arms and fixed per-person galleries. Four independent gallery losses/update; 20 epochs; LR .001/decay .01/temp .1.
   Select dyad-macro validation MRR including epoch zero, excluding pair 2020 from main summaries; never access test
   or reserved features. Save exact schedules/mappings/stats, best/last heads and PNG-only live epoch plots.
-  GPU wrapper `src/cl_behaviour/hpc/circling_train.lsf` is ignored: copy explicitly. Tests: tests/cl_behaviour/test_training.py.
+  CPU sweep wrapper `src/cl_behaviour/hpc/circling_train.lsf` is ignored: copy explicitly. Tests: tests/cl_behaviour/test_training.py.
+
+* `bsub < src/cl_behaviour/hpc/circling_train.lsf` now submits a six-task CPU array (maximum six concurrent):
+  LR .0001/.0003/.001 × decay .01/.1, temporal/full readouts and both arms per task. One core/10 GB/four hours
+  each; --device cpu; logs/output paths include job ID and task index. Defaults retain seed 42/temp .1/20 epochs
+  and epoch-level validation. See README for the index mapping; no test evaluation or automatic selection across jobs.
+
+* Fixed-target ridge diagnostic: `PYTHONPATH=src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m cl_behaviour
+  ridge --features <features> --run <split> --output <new-run>`. Shared equal-participant and per-person ridge,
+  temporal 800→movement 400, training-only statistics, same four offsets/galleries, matched trial shuffles.
+  One global lambda per family/arm selected by validation MRR from 1e-5..1e-1; ties prefer stronger regularization.
+  Float64 primal/dual solver, fixed cosine retrieval, prediction errors and PNG-only regularization plots.
+  Single CPU wrapper `src/cl_behaviour/hpc/circling_ridge.lsf` is ignored: copy explicitly. Tests: test_ridge.py.
