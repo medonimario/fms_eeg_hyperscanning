@@ -568,3 +568,78 @@ Bring back **ridge.json, comparison.csv, regularization.csv and regularization_c
 a boundary lambda is evidence to inspect, not an automatic instruction to expand the search. These baselines
 probe feature accessibility and participant sharing; they are not a pure loss ablation because the prediction
 target, parameterization and effective capacity differ from CL. No model is evaluated on final test data here.
+
+## Whole-trial evidence and soft-target comparison
+
+Run `PYTHONPATH=src python -m cl_behaviour whole-trial --features <features> --run <split> --output <new-run>`.
+This uses the existing complete feature cache, without encoder forwarding or raw EEG access. Submit the
+three-seed CPU array with `bsub < src/cl_behaviour/hpc/circling_whole_trial.lsf` after creating `outputs/` and
+`errors/`. Copy this Git-ignored wrapper explicitly when deploying. Each job fits all four experiments and
+both true/shuffled controls; seeds 42/43/44 change initialization, gallery schedules and trial permutations.
+The wrapper requests eight hours per job; runtime has not yet been measured on the cluster.
+
+This is the next experiment after the weak four-second CL/ridge generalization results. It tests two factors:
+
+| Experiment | Objective | Targets |
+|---|---|---|
+| local-hard | Mean of eight window losses | Exact correspondence |
+| trial-hard | Loss on mean of eight window score matrices | Exact correspondence |
+| local-soft | Mean of eight window losses | Fixed local movement-similarity blend |
+| trial-soft | Loss on mean of eight window score matrices | Fixed whole-trajectory similarity blend |
+
+All four use the same frozen temporal LaBraM readout (800 dimensions), 400-dimensional movement windows,
+bias-free 800→32 and 400→32 heads, and cosine normalization per window. The heads are shared across offsets
+and participants: 38,400 trainable parameters. Offsets 0/2/4/6/8/10/12/14 cover the entire 18-second trial.
+Overlapping windows have equal weight, so interior time points appear in more windows than boundary points;
+they are never counted as independent trials. This aggregates aligned evidence, without learning transitions
+between windows. No new attention, temporal convolution or backbone adaptation is introduced.
+
+For cosine matrix C[k] at offset k, trial logits are mean_k C[k] / temperature. The local objective averages
+eight symmetric cross-entropies; the trial objective applies one symmetric cross-entropy after averaging.
+Every optimizer update averages up to four participant galleries, each including all eight offsets. Each
+participant gallery is visited once per epoch. This matches data exposure and update counts across the four
+new experiments, but is not the old four-offset optimization schedule. Defaults are 20 epochs, learning rate
+.001, weight decay .1 and student temperature .1, fixed from the earlier temporal baseline rather than swept.
+
+Both modalities use participant-specific training-only means and scalar RMS normalization over all eight
+windows. The local teacher uses these fixed movement vectors before the learned projection. The trial teacher
+uses the complete, unique 2×900-sample sine/cosine trajectory, reconstructed with overlap checks, and a separate
+participant training-trial mean and scalar scale. It does not double-count overlapping movement samples.
+Absolute phase/order remain intact; there is no time warping, phase alignment or arbitrary lag optimization.
+
+For each level, q=softmax(cosine(teacher_i, teacher_j)/teacher_temperature). Targets are
+T=(1-alpha)I+alpha*q, default alpha=.5. Each direction uses a row-normalized teacher distribution, not an
+unnormalized transpose of q. Diagonal self-similarity is included. The teacher temperature is calibrated
+separately for local/trial on training galleries only: select from 81 log-spaced values .001–10 to put the
+median per-query effective-positive count exp(entropy(q)) closest to two. This is a geometry-based design
+choice, not a validation-accuracy search; it is not evidence that two positives is optimal. Inspect
+`teacher_diagnostics.csv` for diagonal mass, effective positives, off-diagonal similarities and calibration
+boundary flags. Raw training geometry determines calibration, including pair 2020 consistently with fitting.
+Both soft arms use fixed teachers, saved in `teachers.pt`, with no gradients through target construction.
+
+A shuffled arm assigns one fixed whole-trial movement permutation per participant, shared across offsets and
+all four experiments. Its soft teacher is permuted on both axes to follow those assigned movement trajectories;
+it must not retain true EEG–movement supervision. Reverse probabilities are normalized in their own direction.
+Validation always uses true correspondence and training-fitted statistics/teacher temperatures.
+
+All arms evaluate the SAME whole-trial score aggregation, plus separate window diagnostics. Select checkpoints
+only by whole-trial validation EEG→movement MRR, including epoch zero and retaining the earliest tie. Main
+summaries average members within dyads then weight dyads equally, excluding pair 2020 from summaries only.
+Whole-trial splits and all reserved/test boundaries are inherited unchanged. Exact trial identification remains
+the retrieval criterion even with soft training targets. Save mixed-gallery condition-specific query metrics
+and condition-restricted candidate metrics separately; singleton restricted galleries are retained with chance
+one and must not be treated as useful retrieval evidence.
+
+Each `<experiment>/<true|shuffled>/` contains `history.csv`, automatically refreshed PNG-only learning curves,
+best/last heads, `selection.json`, best/last detailed gallery metrics and `best_scores.npz` (trial score matrices,
+with rows/columns ordered as in `galleries.json`). Curves show whole-trial retrieval and the arm's assigned loss;
+absolute losses across hard/soft objectives are not directly comparable. History also saves window metrics.
+Root outputs include `comparison.csv`, fitted `normalization.pt`, `initial_heads.pt`, schedules, galleries,
+teachers, diagnostics, and `whole_trial.json` with hashes and provenance. Partial runs lack the completion JSON.
+Compare paired per-dyad differences and all three seeds; do not report only the best seed. Shuffled runs are
+engineering controls, not a formal permutation significance test. There is no test scoring or automatic model
+promotion. A learned temporal module and matched raw-EEG/mTRF comparator remain subsequent decisions.
+
+Rationale: [soft-target EEG/video alignment](https://arxiv.org/html/2610.09287v1),
+[SoftCLT](https://proceedings.iclr.cc/paper_files/paper/2024/hash/ccc48eade8845cbc0b44384e8c49889a-Abstract-Conference.html),
+and [NeuroDyGait](https://arxiv.org/html/2506.22488v2). These motivate the hypotheses, not an expectation of success.

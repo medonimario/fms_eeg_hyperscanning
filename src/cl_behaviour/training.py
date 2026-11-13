@@ -112,8 +112,12 @@ class FeatureBank:
         require(array.shape == shape and array.dtype == np.float32, f"Invalid feature array: {name}")
         return array
 
-    def build(self, profile: str, permutation_seed: int) -> tuple[list[dict], dict]:
+    def build(self, profile: str, permutation_seed: int, offsets: tuple[int, ...] = OFFSETS) -> tuple[list[dict], dict]:
         """Build readout galleries and fit participant-specific statistics on training windows only."""
+        require(
+            bool(offsets) and len(set(offsets)) == len(offsets) and set(offsets) <= set(range(0, 15, 2)),
+            "Invalid window offsets",
+        )
         sets, statistics = [], {}
         for group, trial_rows in self.trials.groupby("group", sort=True):
             print(f"Loading {profile} features for pair {group}", flush=True)
@@ -130,7 +134,7 @@ class FeatureBank:
                     (self.galleries.group == group) & (self.galleries.member == member)
                 ].itertuples():
                     ids = json.loads(gallery.trial_ids)
-                    for offset in OFFSETS:
+                    for offset in offsets:
                         rows = window_rows[window_rows.crop_start_s == offset].set_index("trial_id").loc[ids]
                         raw = torch.from_numpy(
                             np.array(tokens[rows.token_array_index.to_numpy(), member_index], copy=True)

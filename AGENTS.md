@@ -209,3 +209,9 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   One global lambda per family/arm selected by validation MRR from 1e-5..1e-1; ties prefer stronger regularization.
   Float64 primal/dual solver, fixed cosine retrieval, prediction errors and PNG-only regularization plots.
   Single CPU wrapper `src/cl_behaviour/hpc/circling_ridge.lsf` is ignored: copy explicitly. Tests: test_ridge.py.
+
+* Whole-trial behaviour comparison: `PYTHONPATH=src python -m cl_behaviour whole-trial --features <features>
+  --run <split> --output <new-run>` runs matched local/trial × hard/soft objectives, each with true/shuffled arms.
+  Uses eight cached windows, temporal readout, fixed movement teachers, training-only entropy calibration and
+  whole-trial validation MRR selection; no test access. CPU three-seed array: `src/cl_behaviour/hpc/circling_whole_trial.lsf`.
+  Copy the ignored wrapper explicitly. See package README; tests in `tests/cl_behaviour/test_whole_trial.py`.

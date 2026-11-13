@@ -72,7 +72,38 @@ def main() -> None:
     command.add_argument("--output", type=Path, required=True)
     command.add_argument("--lambdas", type=float, nargs="+", default=[1e-5, 1e-4, 1e-3, 1e-2, 1e-1])
     command.add_argument("--seed", type=int, default=42)
+    command = commands.add_parser("whole-trial", help="Matched eight-window local/trial hard/soft comparison.")
+    command.add_argument("--features", type=Path, required=True)
+    command.add_argument("--run", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--epochs", type=int, default=20)
+    command.add_argument("--seed", type=int, default=42)
+    command.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    command.add_argument("--learning-rate", type=float, default=0.001)
+    command.add_argument("--weight-decay", type=float, default=0.1)
+    command.add_argument("--temperature", type=float, default=0.1)
+    command.add_argument("--alpha", type=float, default=0.5)
+    command.add_argument("--effective-positives", type=float, default=2.0)
+    command.add_argument("--groups-per-update", type=int, default=4)
     args = parser.parse_args()
+    if args.stage == "whole-trial":
+        from .whole_trial import run_whole_trial
+
+        run_whole_trial(
+            args.features,
+            args.run,
+            args.output,
+            args.epochs,
+            args.seed,
+            args.device,
+            args.learning_rate,
+            args.weight_decay,
+            args.temperature,
+            args.alpha,
+            args.effective_positives,
+            args.groups_per_update,
+        )
+        return
     if args.stage == "ridge":
         from .ridge import run_ridge
 
