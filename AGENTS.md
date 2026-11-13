@@ -215,3 +215,9 @@ Standardization and shuffled mappings are refitted for this open-only run. Compa
   Uses eight cached windows, temporal readout, fixed movement teachers, training-only entropy calibration and
   whole-trial validation MRR selection; no test access. CPU three-seed array: `src/cl_behaviour/hpc/circling_whole_trial.lsf`.
   Copy the ignored wrapper explicitly. See package README; tests in `tests/cl_behaviour/test_whole_trial.py`.
+
+* Continuous movement temporal comparison: `PYTHONPATH=src python -m cl_behaviour temporal-trial --features <features>
+  --run <split> --output <new-run>` compares linear/temporal/parameter-matched pointwise EEG branches with the
+  same full 2×900 movement CNN and hard trial-level CL. LR defaults to .0001; no test access or re-extraction.
+  Submit the three-seed CPU array `src/cl_behaviour/hpc/circling_temporal_trial.lsf` (copy ignored wrapper).
+  See package README and `tests/cl_behaviour/test_temporal_trial.py` for normalization and temporal controls.

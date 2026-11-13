@@ -643,3 +643,68 @@ promotion. A learned temporal module and matched raw-EEG/mTRF comparator remain 
 Rationale: [soft-target EEG/video alignment](https://arxiv.org/html/2610.09287v1),
 [SoftCLT](https://proceedings.iclr.cc/paper_files/paper/2024/hash/ccc48eade8845cbc0b44384e8c49889a-Abstract-Conference.html),
 and [NeuroDyGait](https://arxiv.org/html/2506.22488v2). These motivate the hypotheses, not an expectation of success.
+
+## Temporal EEG with continuous movement: current experiment
+
+Run `PYTHONPATH=src python -m cl_behaviour temporal-trial --features <features> --run <split> --output <new-run>`.
+Submit `bsub < src/cl_behaviour/hpc/circling_temporal_trial.lsf` from the repository root after creating
+`outputs/` and `errors/`. Copy the ignored wrapper explicitly. Three CPU jobs use seeds 42/43/44, with six
+fits per job: linear/temporal/pointwise EEG branches × true/shuffled training. Each job requests 10 GB and
+8 hours; cluster runtime has not been measured. Default LR is **0.0001**, matching run 30040119, with 20 epochs,
+weight decay .1, temperature .1, four participant galleries per update and gradient clipping at 5.
+
+The previous whole-trial experiment averaged window cosine scores. This experiment independently produces one
+32-dimensional EEG vector and one 32-dimensional movement vector per complete trial, then uses their cosine
+similarity and symmetric hard-target cross entropy. No soft teacher or similarity calibration is used.
+
+| Component | Exact implementation |
+|---|---|
+| EEG input | Eight frozen temporal readouts, shape 8×800, offsets 0/2/4/6/8/10/12/14 s |
+| EEG input projection | Shared bias-free 800→32 at each window |
+| Linear EEG | No residual blocks |
+| Temporal EEG | Three residual Conv1d blocks, 32→32, kernel 3, dilations 1/2/4, same-length zero padding |
+| Pointwise EEG | Three residual 32→48→32 MLP blocks, shared independently at every position |
+| Movement input | Original continuous cached 2×900 sine/cosine array, 50 Hz, no window reconstruction |
+| Movement stem | Bias-free Conv1d 2→16, kernel 9/stride 5/padding 4; GELU; Conv1d 16→32, kernel 7/stride 3/padding 3; GELU |
+| Movement context | Three temporal residual blocks with dilations 1/2/4 on the resulting 60-position sequence |
+| Both readouts | Adaptive mean pooling into four ordered bins; flatten bin-major 4×32; bias-free 128→32 |
+| Retrieval | L2-normalize the two trial vectors and compare all trials within the participant gallery |
+
+Residual blocks use per-position LayerNorm(32), a bias-free convolution or MLP, GELU, dropout .1 and a skip
+connection. The pointwise MLP has an additional internal GELU. Both mixing operations have exactly 3,072
+weights; LayerNorm adds 64 parameters per block. Parameter totals are **47,072 linear**, **56,480 temporal**,
+and **56,480 pointwise**, including the same 17,376-parameter movement branch. Common EEG projection/readout
+and movement weights start identically across profiles; added residual blocks are profile-specific. True and
+shuffled arms reset to identical weights and RNG streams within each profile. This is a parameter-matched
+control, not a claim that the two nonlinear architectures have identical expressive power.
+
+Temporal EEG blocks connect neighboring windows and can span the eight-position sequence. The movement
+network continuously processes the trial; its final convolutional receptive field is 249 input samples
+(about 5 s), before ordered bin pooling and the trial projection. Four movement bins summarize the full
+trajectory without forcing the EEG crop boundaries on movement. Bins are internal learned-feature summaries,
+not independently encoded raw movement segments. Readouts retain coarse order but still compress detail.
+All context is bidirectional within a trial; this is offline retrieval, not a causal decoder. Linear/pointwise
+EEG variants have no cross-window interactions before the ordered readout, although that final linear map
+combines bins. The new common movement encoder makes the old experiment a historical, not isolated, comparator.
+
+EEG normalization is inherited from the verified FeatureBank: participant training-only feature means and
+scalar RMS over all eight windows. Movement is loaded directly from the original permitted cached trial row.
+Its two channel means are fitted across training trials AND time, with one shared scalar RMS across both
+centered channels. These statistics broadcast over all 900 positions and are saved as `continuous_movement`.
+No validation fitting, per-trial normalization, phase alignment, wrapped-phase resampling or temporal warping.
+Legacy window movement statistics computed by the shared reader are discarded and never used by this encoder.
+
+Whole-trial splits, combined closed conditions, reservations, candidate ordering and coherent participant-level
+trial shuffles are unchanged. Only training/validation development features are accessed. Pair 2020 remains
+in fitting and is excluded from main summaries. Validation always measures true correspondence; train metrics
+also measure true pairs even in shuffled arms, while assigned loss measures the training permutation.
+Whole-trial dyad-macro validation MRR selects checkpoints, including epoch zero and earliest ties. Per-condition
+query metrics and condition-restricted galleries are saved separately; singleton galleries have chance one.
+
+Each `<profile>/<true|shuffled>/` saves history, PNG curves refreshed every epoch, best/last complete models,
+selection, detailed gallery metrics and best trial score matrices. `<profile>/initial_model.pt` records the
+initial state. Root outputs include `comparison.csv`, `normalization.pt`, `galleries.json`, `schedule.json`,
+`config.json` and completion/provenance file `temporal_trial.json`. Score matrix axes follow `galleries.json`.
+No old checkpoints are loaded; this retrains both new branches. No new LaBraM extraction is required.
+Compare all seeds and shuffled controls, especially temporal versus pointwise, before attributing an improvement
+to temporal dependencies. Tests: `PYTHONPATH=src python -m pytest tests/cl_behaviour/test_temporal_trial.py`.

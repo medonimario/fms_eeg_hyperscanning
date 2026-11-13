@@ -85,7 +85,34 @@ def main() -> None:
     command.add_argument("--alpha", type=float, default=0.5)
     command.add_argument("--effective-positives", type=float, default=2.0)
     command.add_argument("--groups-per-update", type=int, default=4)
+    command = commands.add_parser("temporal-trial", help="Temporal EEG and continuous full-trial movement encoders.")
+    command.add_argument("--features", type=Path, required=True)
+    command.add_argument("--run", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--epochs", type=int, default=20)
+    command.add_argument("--seed", type=int, default=42)
+    command.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    command.add_argument("--learning-rate", type=float, default=0.0001)
+    command.add_argument("--weight-decay", type=float, default=0.1)
+    command.add_argument("--temperature", type=float, default=0.1)
+    command.add_argument("--groups-per-update", type=int, default=4)
     args = parser.parse_args()
+    if args.stage == "temporal-trial":
+        from .temporal_trial import run_temporal_trial
+
+        run_temporal_trial(
+            args.features,
+            args.run,
+            args.output,
+            args.epochs,
+            args.seed,
+            args.device,
+            args.learning_rate,
+            args.weight_decay,
+            args.temperature,
+            args.groups_per_update,
+        )
+        return
     if args.stage == "whole-trial":
         from .whole_trial import run_whole_trial
 
